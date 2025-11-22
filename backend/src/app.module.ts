@@ -2,10 +2,12 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { BullModule } from '@nestjs/bull';
+import { ThrottlerModule } from '@nestjs/throttler';
 
 // Core Modules
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
+import { LoggerModule } from './common/logger/logger.module';
 
 // Feature Modules
 import { AuthModule } from './auth/auth.module';
@@ -15,6 +17,7 @@ import { WebhookModule } from './webhook/webhook.module';
 import { WebsocketModule } from './websocket/websocket.module';
 import { BankModule } from './bank/bank.module';
 import { PlatformModule } from './platform/platform.module';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -25,6 +28,14 @@ import { PlatformModule } from './platform/platform.module';
 
     // Schedule (Cron jobs)
     ScheduleModule.forRoot(),
+
+    // Rate Limiting
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000, // 60 seconds
+        limit: 100, // 100 requests per minute
+      },
+    ]),
 
     // Bull Queue
     BullModule.forRoot({
@@ -37,6 +48,7 @@ import { PlatformModule } from './platform/platform.module';
     // Core
     PrismaModule,
     RedisModule,
+    LoggerModule,
 
     // Features
     AuthModule,
@@ -46,6 +58,7 @@ import { PlatformModule } from './platform/platform.module';
     WebsocketModule,
     BankModule,
     PlatformModule,
+    HealthModule,
   ],
 })
 export class AppModule {}

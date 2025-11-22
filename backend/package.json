@@ -22,6 +22,8 @@
     "@nestjs/passport": "^10.0.3",
     "@nestjs/config": "^3.1.1",
     "@nestjs/schedule": "^4.0.0",
+    "@nestjs/terminus": "^10.2.0",
+    "@nestjs/throttler": "^5.1.1",
     "@prisma/client": "^5.8.0",
     "prisma": "^5.8.0",
     "passport": "^0.7.0",
@@ -37,7 +39,8 @@
     "nanoid": "^3.3.7",
     "dayjs": "^1.11.10",
     "reflect-metadata": "^0.2.1",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "@nestjs/swagger": "^7.2.0"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.3.0",
