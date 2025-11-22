@@ -1,0 +1,14 @@
+{
+  "name": "psp-mvp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PSP Payment System - 3-tier architecture",
+  "scripts": {
+    "install:all": "cd backend && npm install && cd ../admin-panel && npm install && cd ../sdk && npm install",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:admin": "cd admin-panel && npm run dev",
+    "dev:sdk": "cd sdk && npm run demo",
+    "build:all": "cd backend && npm run build && cd ../admin-panel && npm run build && cd ../sdk && npm run build",
+    "prisma:setup": "cd backend && npm run prisma:generate && npm run prisma:migrate && npm run prisma:seed"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "name": "@pspay/sdk",
+  "version": "1.0.0",
+  "description": "PSP Payment SDK for platform integration",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "dev": "rollup -c -w",
+    "demo": "serve demo"
+  },
+  "keywords": [
+    "payment",
+    "psp",
+    "sdk",
+    "widget"
+  ],
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^25.0.7",
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-typescript": "^11.1.5",
+    "rollup": "^4.9.4",
+    "typescript": "^5.3.3",
+    "serve": "^14.2.1"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.6.0"
+  }
+}
