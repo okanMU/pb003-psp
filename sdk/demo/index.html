@@ -185,10 +185,13 @@ pspay.showWidget(payment.id);
         </div>
     </div>
 
+    <!-- Include Socket.io (required for real-time) -->
+    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+
     <!-- Include PSPay SDK -->
     <script src="../dist/index.js"></script>
     <script>
-        // Initialize PSPay
+        // Initialize PSPay (UMD build exposes PSPay globally)
         const pspay = new PSPay({
             apiKey: 'pk_test_demo_platform',
             apiUrl: 'http://localhost:3000/api/v1',

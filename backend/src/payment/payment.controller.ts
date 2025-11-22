@@ -1,7 +1,12 @@
 import { Controller, Post, Get, Body, Param, Req, UseGuards } from '@nestjs/common';
 import { PaymentService } from './payment.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
-import { Request } from 'express';
+import { ApiKeyGuard } from '../auth/api-key.guard';
+
+interface RequestWithPlatform extends Request {
+  platformId?: string;
+  platform?: any;
+}
 
 @Controller('payments')
 export class PaymentController {
@@ -12,12 +17,12 @@ export class PaymentController {
    * Yeni ödeme oluştur (SDK'dan çağrılır)
    */
   @Post()
+  @UseGuards(ApiKeyGuard)
   async create(
     @Body() dto: CreatePaymentDto,
-    @Req() req: Request,
+    @Req() req: RequestWithPlatform,
   ) {
-    // API key'den platform ID'yi al (gerçek uygulamada middleware)
-    const platformId = req.headers['x-api-key'] as string;
+    const platformId = req.platformId;
     const customerIp = req.ip;
 
     return this.paymentService.createPayment(platformId, dto, customerIp);

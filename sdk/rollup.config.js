@@ -7,17 +7,28 @@ export default {
   output: [
     {
       file: 'dist/index.js',
-      format: 'cjs',
+      format: 'umd',
+      name: 'PSPay',
       sourcemap: true,
+      globals: {
+        'socket.io-client': 'io',
+      },
     },
     {
       file: 'dist/index.esm.js',
       format: 'es',
       sourcemap: true,
     },
+    {
+      file: 'dist/index.cjs.js',
+      format: 'cjs',
+      sourcemap: true,
+    },
   ],
   plugins: [
-    resolve(),
+    resolve({
+      browser: true,
+    }),
     commonjs(),
     typescript({ tsconfig: './tsconfig.json' }),
   ],
