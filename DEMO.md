@@ -299,7 +299,7 @@ Response: "Payment is not pending"
 3. **Analytics Dashboard**
    - Grafik ve raporlar
    - Export to Excel/PDF
-   - Email notifications
+   - Real-time raporlama
 
 4. **Mobile App**
    - Admin mobile app
