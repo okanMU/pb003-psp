@@ -161,7 +161,7 @@ export class CollateralService {
       }
 
       if (lock.status !== 'ACTIVE') {
-        this.logger.warn(`Lock ${lockId} already released or expired`);
+        this.logger.warn(`Lock for transaction ${transactionId} already released or expired`);
         return;
       }
 
