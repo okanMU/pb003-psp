@@ -6,7 +6,7 @@ import { CommissionService } from '../commission.service';
 import { CollateralService } from '../../collateral/collateral.service';
 import { BankSelectionService } from '../../collateral/bank-selection.service';
 import { LoggerService } from '../../common/logger/logger.service';
-import { FraudDetectionService } from '../../security/fraud-detection.service';
+import { FraudDetectionServiceRefactored } from '../../security/fraud-detection-refactored.service';
 import { CreatePaymentDto } from '../dto/create-payment.dto';
 import { PaymentResponseDto } from '../dto/payment-response.dto';
 import {
@@ -22,6 +22,7 @@ import {
  * PaymentCreator Service
  * Responsible for creating new payment transactions
  * Extracted from PaymentService for better separation of concerns
+ * Now using Strategy Pattern-based FraudDetectionServiceRefactored
  */
 @Injectable()
 export class PaymentCreatorService {
@@ -33,7 +34,7 @@ export class PaymentCreatorService {
     private collateral: CollateralService,
     private bankSelection: BankSelectionService,
     private logger: LoggerService,
-    private fraudDetection: FraudDetectionService,
+    private fraudDetection: FraudDetectionServiceRefactored,
   ) {
     this.logger.setContext('PaymentCreatorService');
   }
