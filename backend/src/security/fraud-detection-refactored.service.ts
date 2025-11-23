@@ -215,4 +215,171 @@ export class FraudDetectionServiceRefactored implements OnModuleInit {
       riskDistribution,
     };
   }
+
+  /**
+   * Get security events (for admin dashboard)
+   */
+  async getSecurityEvents(options: {
+    limit?: number;
+    offset?: number;
+    severity?: string;
+    riskLevel?: string;
+  }) {
+    const where: any = {};
+
+    if (options.riskLevel) {
+      where.risk_level = options.riskLevel;
+    }
+
+    const events = await this.prisma.securityEvent.findMany({
+      where,
+      take: options.limit || 50,
+      skip: options.offset || 0,
+      orderBy: { created_at: 'desc' },
+      include: {
+        platform: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+
+    const total = await this.prisma.securityEvent.count({ where });
+
+    return {
+      events,
+      total,
+      limit: options.limit || 50,
+      offset: options.offset || 0,
+    };
+  }
+
+  /**
+   * Get high-risk transactions (for manual review)
+   */
+  async getHighRiskTransactions() {
+    const transactions = await this.prisma.transaction.findMany({
+      where: {
+        OR: [
+          { fraud_score: { gte: 80 } },
+          { risk_level: 'HIGH' },
+          { risk_level: 'CRITICAL' },
+        ],
+        status: 'PENDING',
+      },
+      orderBy: { fraud_score: 'desc' },
+      take: 100,
+      include: {
+        platform: {
+          select: {
+            name: true,
+          },
+        },
+        bank: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+
+    return transactions;
+  }
+
+  /**
+   * Remove customer from high-risk list
+   */
+  async removeCustomerHighRisk(
+    email?: string,
+    phone?: string,
+    adminId?: string,
+  ): Promise<void> {
+    if (!email && !phone) {
+      throw new Error('Either email or phone must be provided');
+    }
+
+    // Log the action
+    await this.logSecurityEvent(
+      adminId || 'system',
+      'customer_risk_removed',
+      'LOW',
+      {
+        email,
+        phone,
+        action: 'manual_risk_removal',
+        admin_id: adminId,
+      },
+    );
+
+    // Remove from Redis high-risk cache if exists
+    const cacheKeys = [];
+    if (email) cacheKeys.push(`high_risk:email:${email}`);
+    if (phone) cacheKeys.push(`high_risk:phone:${phone}`);
+
+    for (const key of cacheKeys) {
+      await this.redis.del(key);
+    }
+
+    this.logger.log(
+      `Removed customer from high-risk list: email=${email}, phone=${phone}, admin=${adminId}`,
+    );
+  }
+
+  /**
+   * Get list of high-risk customers
+   */
+  async getHighRiskCustomers() {
+    // Get customers with high fraud scores
+    const highRiskTransactions = await this.prisma.transaction.findMany({
+      where: {
+        fraud_score: { gte: 80 },
+      },
+      select: {
+        customer_email: true,
+        customer_phone: true,
+        customer_name: true,
+        fraud_score: true,
+        risk_level: true,
+        created_at: true,
+      },
+      orderBy: { fraud_score: 'desc' },
+      take: 100,
+    });
+
+    // Group by customer
+    const customerMap = new Map();
+
+    for (const tx of highRiskTransactions) {
+      const key = tx.customer_email || tx.customer_phone || 'unknown';
+
+      if (!customerMap.has(key)) {
+        customerMap.set(key, {
+          email: tx.customer_email,
+          phone: tx.customer_phone,
+          name: tx.customer_name,
+          highestFraudScore: tx.fraud_score,
+          riskLevel: tx.risk_level,
+          transactionCount: 0,
+          lastSeen: tx.created_at,
+        });
+      }
+
+      const customer = customerMap.get(key);
+      customer.transactionCount++;
+
+      if (tx.fraud_score > customer.highestFraudScore) {
+        customer.highestFraudScore = tx.fraud_score;
+        customer.riskLevel = tx.risk_level;
+      }
+
+      if (new Date(tx.created_at) > new Date(customer.lastSeen)) {
+        customer.lastSeen = tx.created_at;
+      }
+    }
+
+    return Array.from(customerMap.values()).sort(
+      (a, b) => b.highestFraudScore - a.highestFraudScore,
+    );
+  }
 }

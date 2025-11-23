@@ -69,7 +69,7 @@ export class PaymentCreatorService {
     const commissions = this.commission.calculate(dto.amount, platform.commission_rate);
 
     // Calculate expiration time
-    const expiresAt = DateUtil.addMinutes(new Date(), PaymentConstants.EXPIRATION_MINUTES);
+    const expiresAt = DateUtil.addMinutes(PaymentConstants.TIME.PAYMENT_EXPIRY_MINUTES);
 
     // Create transaction in database
     const payment = await this.prisma.transaction.create({
@@ -151,9 +151,12 @@ export class PaymentCreatorService {
     );
 
     if (fraudAnalysis.isBlocked) {
+      const ruleMessages = fraudAnalysis.triggeredRules
+        .map((r) => r.message)
+        .join(', ');
       throw new FraudDetectedException(
-        'Transaction blocked by fraud detection',
-        fraudAnalysis,
+        fraudAnalysis.riskLevel,
+        `Transaction blocked: ${ruleMessages}`,
       );
     }
   }
@@ -200,7 +203,7 @@ export class PaymentCreatorService {
     await this.redis.set(
       cacheKey,
       JSON.stringify(payment),
-      PaymentConstants.CACHE_TTL_SECONDS,
+      PaymentConstants.TIME.PAYMENT_CACHE_TTL_SECONDS,
     );
 
     await this.redis.set(codeKey, payment.id, PaymentConstants.CACHE_TTL_SECONDS);

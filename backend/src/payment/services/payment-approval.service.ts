@@ -89,11 +89,7 @@ export class PaymentApprovalService {
 
     // Check status
     if (payment.status !== PaymentStatus.PENDING) {
-      throw new InvalidPaymentStatusException(
-        payment.transaction_code,
-        payment.status,
-        'approve',
-      );
+      throw new InvalidPaymentStatusException(payment.status, 'PENDING');
     }
   }
 
@@ -118,7 +114,7 @@ export class PaymentApprovalService {
     });
 
     if (updated.count === 0) {
-      throw new InvalidPaymentStatusException(paymentId, 'NOT_PENDING', 'approve');
+      throw new InvalidPaymentStatusException('NOT_PENDING', 'PENDING');
     }
 
     // Fetch updated payment

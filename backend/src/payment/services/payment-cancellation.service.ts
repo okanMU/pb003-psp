@@ -117,11 +117,7 @@ export class PaymentCancellationService {
   private validatePaymentForRejection(payment: any): void {
     // Check status
     if (payment.status !== PaymentStatus.PENDING) {
-      throw new InvalidPaymentStatusException(
-        payment.transaction_code,
-        payment.status,
-        'reject',
-      );
+      throw new InvalidPaymentStatusException(payment.status, 'PENDING');
     }
   }
 
@@ -148,7 +144,7 @@ export class PaymentCancellationService {
     });
 
     if (updated.count === 0) {
-      throw new InvalidPaymentStatusException(paymentId, 'NOT_PENDING', 'reject');
+      throw new InvalidPaymentStatusException('NOT_PENDING', 'PENDING');
     }
 
     // Fetch updated payment
