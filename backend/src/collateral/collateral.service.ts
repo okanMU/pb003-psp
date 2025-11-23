@@ -123,14 +123,18 @@ export class CollateralService {
       await this.updateBankCache(result.bank);
 
       // Pub/Sub bildir (real-time)
-      await this.redis.publish('bank:collateral:locked', {
-        bankId,
-        transactionId,
+      await this.redis.publish('collateral:locked', {
+        transaction_id: transactionId,
+        bank_id: bankId,
+        bank_name: result.bank.name,
         amount,
-        availableCollateral: parseFloat(
+        available_collateral: parseFloat(
           result.bank.available_collateral.toString(),
         ),
+        is_suspended: result.bank.is_suspended,
       });
+
+      this.logger.log(`Collateral locked successfully for transaction ${transactionId}`);
 
       return result.lock;
     } finally {
@@ -140,15 +144,15 @@ export class CollateralService {
   }
 
   /**
-   * Teminatı serbest bırak
+   * Teminatı serbest bırak (transaction ID ile)
    */
-  async releaseCollateral(lockId: string): Promise<void> {
-    this.logger.log(`Releasing collateral lock ${lockId}`);
+  async releaseCollateral(bankId: string, transactionId: string): Promise<void> {
+    this.logger.log(`Releasing collateral for transaction ${transactionId}`);
 
     await this.prisma.$transaction(async (tx) => {
       // 1. Kilidi bul
       const lock = await tx.collateralLock.findUnique({
-        where: { id: lockId },
+        where: { transaction_id: transactionId },
         include: { bank: true },
       });
 
@@ -163,7 +167,7 @@ export class CollateralService {
 
       // 2. Kilidi güncelle
       await tx.collateralLock.update({
-        where: { id: lockId },
+        where: { transaction_id: transactionId },
         data: {
           status: 'RELEASED',
           released_at: new Date(),
@@ -205,19 +209,23 @@ export class CollateralService {
       await this.updateBankCache(updatedBank);
 
       // Pub/Sub bildir
-      await this.redis.publish('bank:collateral:released', {
-        bankId: lock.bank_id,
-        transactionId: lock.transaction_id,
+      await this.redis.publish('collateral:released', {
+        transaction_id: lock.transaction_id,
+        bank_id: lock.bank_id,
+        bank_name: lock.bank.name,
         amount: parseFloat(lock.locked_amount.toString()),
-        availableCollateral: newAvailable,
+        available_collateral: newAvailable,
+        is_suspended: updatedBank.is_suspended,
       });
+
+      this.logger.log(`Collateral released successfully for transaction ${lock.transaction_id}`);
     });
   }
 
   /**
    * Süresi dolan kilitleri temizle
    */
-  async releaseExpiredLocks(): Promise<number> {
+  async releaseExpiredLocks(): Promise<{ count: number }> {
     const expiredLocks = await this.prisma.collateralLock.findMany({
       where: {
         status: 'ACTIVE',
@@ -225,28 +233,37 @@ export class CollateralService {
           lt: new Date(),
         },
       },
+      select: {
+        id: true,
+        transaction_id: true,
+        bank_id: true,
+      },
     });
 
     let released = 0;
     for (const lock of expiredLocks) {
       try {
+        // Mark as expired first
         await this.prisma.collateralLock.update({
           where: { id: lock.id },
           data: { status: 'EXPIRED' },
         });
 
-        await this.releaseCollateral(lock.id);
+        // Release collateral
+        await this.releaseCollateral(lock.bank_id, lock.transaction_id);
         released++;
       } catch (error) {
-        this.logger.error(`Failed to release expired lock ${lock.id}`, error);
+        this.logger.error(
+          `Failed to release expired lock ${lock.id}: ${error.message}`,
+        );
       }
     }
 
     if (released > 0) {
-      this.logger.log(`Released ${released} expired locks`);
+      this.logger.log(`✅ Released ${released} expired collateral locks`);
     }
 
-    return released;
+    return { count: released };
   }
 
   // Helper methods
@@ -257,17 +274,17 @@ export class CollateralService {
 
   private async notifyCollateralFull(bank: any): Promise<void> {
     await this.redis.publish('bank:suspended', {
-      bankId: bank.id,
-      name: bank.name,
+      bank_id: bank.id,
+      bank_name: bank.name,
       reason: 'Teminat limiti doldu',
     });
   }
 
   private async notifyBankReactivated(bank: any): Promise<void> {
     await this.redis.publish('bank:reactivated', {
-      bankId: bank.id,
-      name: bank.name,
-      availableCollateral: parseFloat(bank.available_collateral.toString()),
+      bank_id: bank.id,
+      bank_name: bank.name,
+      available_collateral: parseFloat(bank.available_collateral.toString()),
     });
   }
 }
