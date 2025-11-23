@@ -8,6 +8,8 @@ import { FraudDetectionService } from '../security/fraud-detection.service';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserRole } from '@prisma/client';
+import { RejectPaymentDto } from './dto/reject-payment.dto';
+import { BatchApproveDto } from './dto/batch-approve.dto';
 
 // Admin endpoints require authentication - PSP_ADMIN or OPERATOR roles
 @Roles(UserRole.PSP_ADMIN, UserRole.OPERATOR, UserRole.BANK_OWNER)
@@ -55,10 +57,10 @@ export class AdminController {
   @Post('payments/:id/reject')
   async rejectPayment(
     @Param('id') id: string,
-    @Body() body: { reason?: string },
+    @Body() dto: RejectPaymentDto,
     @CurrentUser('id') adminId: string,
   ) {
-    return this.paymentService.rejectPayment(id, adminId, body.reason);
+    return this.paymentService.rejectPayment(id, adminId, dto.reason);
   }
 
   /**
@@ -66,11 +68,11 @@ export class AdminController {
    */
   @Post('payments/batch-approve')
   async batchApprove(
-    @Body() body: { approvals: Array<{ refCode: string }> },
+    @Body() dto: BatchApproveDto,
     @CurrentUser('id') adminId: string,
   ) {
     // Add adminId to each approval
-    const approvalsWithAdmin = body.approvals.map(approval => ({
+    const approvalsWithAdmin = dto.approvals.map(approval => ({
       ...approval,
       adminId,
     }));

@@ -8,7 +8,8 @@ import { BankSelectionService } from '../collateral/bank-selection.service';
 import { LoggerService } from '../common/logger/logger.service';
 import { FraudDetectionService } from '../security/fraud-detection.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
-import { PaymentStatus } from '@prisma/client';
+import { PaymentResponseDto } from './dto/payment-response.dto';
+import { PaymentStatus, Transaction } from '@prisma/client';
 import {
   PaymentConstants,
   ValidationUtil,
@@ -608,32 +609,7 @@ export class PaymentService {
     });
   }
 
-  private formatPaymentResponse(payment: any) {
-    return {
-      id: payment.id,
-      code: payment.transaction_code,
-      amount: parseFloat(payment.amount),
-      currency: payment.currency,
-      status: payment.status,
-      bank: payment.bank
-        ? {
-            name: payment.bank.name,
-            iban: payment.bank.iban,
-            account_name: payment.bank.account_name,
-          }
-        : null,
-      customer: {
-        email: payment.customer_email,
-        phone: payment.customer_phone,
-        name: payment.customer_name,
-      },
-      platform_order_id: payment.platform_order_id,
-      metadata: payment.metadata,
-      expires_at: payment.expires_at,
-      created_at: payment.created_at,
-      approved_at: payment.approved_at,
-      rejected_at: payment.rejected_at,
-      rejection_reason: payment.rejection_reason,
-    };
+  private formatPaymentResponse(payment: any): PaymentResponseDto {
+    return PaymentResponseDto.from(payment);
   }
 }
