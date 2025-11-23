@@ -1,9 +1,20 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { LoggerService } from '../common/logger/logger.service';
 import { Decimal } from '@prisma/client/runtime/library';
-import { PaymentConstants, formatErrorMessage } from '../common/constants/payment.constants';
+import {
+  PaymentConstants,
+  TransactionHelper,
+  DateUtil,
+  InsufficientCollateralException,
+  BankNotAvailableException,
+  BankSuspendedException,
+  CollateralLockException,
+  LockInUseException,
+  LockNotFoundException,
+  formatMessage,
+} from '../common';
 
 @Injectable()
 export class CollateralService {
@@ -29,7 +40,7 @@ export class CollateralService {
     );
 
     // Redis distributed lock (race condition önleme)
-    const lockKey = `bank:lock:${bankId}`;
+    const lockKey = TransactionHelper.getLockKey('bank', bankId);
     const lockAcquired = await this.redis.getClient().set(
       lockKey,
       transactionId,
@@ -40,7 +51,7 @@ export class CollateralService {
 
     if (!lockAcquired) {
       this.logger.warn(`Failed to acquire lock for bank ${bankId}`);
-      throw new BadRequestException(PaymentConstants.ERRORS.LOCK_IN_USE);
+      throw new LockInUseException();
     }
 
     try {
@@ -52,15 +63,15 @@ export class CollateralService {
         });
 
         if (!bank) {
-          throw new BadRequestException(PaymentConstants.ERRORS.NO_ACTIVE_BANK);
+          throw new BankNotAvailableException();
         }
 
         if (!bank.is_active) {
-          throw new BadRequestException(PaymentConstants.ERRORS.BANK_INACTIVE);
+          throw new BankNotAvailableException('Banka hesabı aktif değil');
         }
 
         if (bank.is_suspended) {
-          throw new BadRequestException(PaymentConstants.ERRORS.BANK_SUSPENDED);
+          throw new BankSuspendedException();
         }
 
         // 2. Yeterli teminat var mı?
@@ -68,18 +79,11 @@ export class CollateralService {
           bank.available_collateral.toString(),
         );
         if (availableCollateral < amount) {
-          throw new BadRequestException(
-            formatErrorMessage(PaymentConstants.ERRORS.INSUFFICIENT_COLLATERAL, {
-              available: availableCollateral,
-              required: amount,
-            }),
-          );
+          throw new InsufficientCollateralException(availableCollateral, amount);
         }
 
         // 3. Kilit oluştur (configured timeout)
-        const expiresAt = new Date(
-          Date.now() + PaymentConstants.TIME.COLLATERAL_LOCK_MINUTES * 60 * 1000,
-        );
+        const expiresAt = TransactionHelper.calculateLockExpiry();
         const lock = await tx.collateralLock.create({
           data: {
             bank_id: bankId,
@@ -162,7 +166,7 @@ export class CollateralService {
       });
 
       if (!lock) {
-        throw new BadRequestException(PaymentConstants.ERRORS.LOCK_NOT_FOUND);
+        throw new LockNotFoundException(transactionId);
       }
 
       if (lock.status !== 'ACTIVE') {

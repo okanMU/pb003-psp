@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { RefCodeService } from './ref-code.service';
@@ -9,8 +9,17 @@ import { LoggerService } from '../common/logger/logger.service';
 import { FraudDetectionService } from '../security/fraud-detection.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { PaymentStatus } from '@prisma/client';
-import { PaymentConstants, formatErrorMessage } from '../common/constants/payment.constants';
-import * as dayjs from 'dayjs';
+import {
+  PaymentConstants,
+  ValidationUtil,
+  DateUtil,
+  TransactionHelper,
+  PaymentNotFoundException,
+  PaymentExpiredException,
+  InvalidPaymentStatusException,
+  PlatformNotFoundException,
+  FraudDetectedException,
+} from '../common';
 
 @Injectable()
 export class PaymentService {
@@ -38,7 +47,7 @@ export class PaymentService {
     this.logger.log(`Creating payment for platform ${platformId}, amount: ${dto.amount}`);
 
     // Validation: Amount limits
-    this.validatePaymentAmount(dto.amount);
+    ValidationUtil.validateAmount(dto.amount);
 
     // Platform kontrolü
     const platform = await this.prisma.platform.findUnique({
@@ -46,7 +55,7 @@ export class PaymentService {
     });
 
     if (!platform) {
-      throw new BadRequestException(PaymentConstants.ERRORS.INVALID_PLATFORM);
+      throw new PlatformNotFoundException(platformId);
     }
 
     // Fraud Detection - Analyze transaction for security risks
@@ -90,9 +99,9 @@ export class PaymentService {
         },
       );
 
-      throw new ForbiddenException(
-        `İşlem güvenlik nedeniyle engellenmiştir. Risk seviyesi: ${fraudAnalysis.riskLevel}. ` +
-        `Lütfen müşteri hizmetleri ile iletişime geçin.`,
+      throw new FraudDetectedException(
+        fraudAnalysis.riskLevel,
+        `${fraudAnalysis.triggeredRules.length} güvenlik kuralı ihlal edildi`,
       );
     }
 
@@ -104,9 +113,7 @@ export class PaymentService {
     const transactionCode = this.refCode.generate();
 
     // Expiry hesapla (configured timeout)
-    const expiresAt = dayjs()
-      .add(PaymentConstants.TIME.PAYMENT_EXPIRY_MINUTES, 'minute')
-      .toDate();
+    const expiresAt = TransactionHelper.calculateExpiryDate();
 
     // Transaction oluştur
     const transaction = await this.prisma.transaction.create({
@@ -198,12 +205,12 @@ export class PaymentService {
 
     // Redis cache (hızlı erişim için)
     await this.redis.set(
-      `payment:${transaction.id}`,
+      TransactionHelper.getPaymentCacheKey(transaction.id),
       transaction,
       PaymentConstants.TIME.PAYMENT_CACHE_TTL_SECONDS,
     );
     await this.redis.set(
-      `payment:code:${transactionCode}`,
+      TransactionHelper.getPaymentCodeCacheKey(transactionCode),
       transaction.id,
       PaymentConstants.TIME.PAYMENT_CACHE_TTL_SECONDS,
     );
@@ -224,7 +231,7 @@ export class PaymentService {
    */
   async getPayment(id: string) {
     // Önce cache'den bak
-    let payment = await this.redis.get(`payment:${id}`);
+    let payment = await this.redis.get(TransactionHelper.getPaymentCacheKey(id));
 
     if (!payment) {
       // Cache'de yoksa DB'den çek
@@ -237,11 +244,15 @@ export class PaymentService {
       });
 
       if (!payment) {
-        throw new NotFoundException('Payment not found');
+        throw new PaymentNotFoundException(id);
       }
 
       // Cache'e kaydet
-      await this.redis.set(`payment:${id}`, payment, 1800);
+      await this.redis.set(
+        TransactionHelper.getPaymentCacheKey(id),
+        payment,
+        PaymentConstants.TIME.LONG_CACHE_TTL_SECONDS,
+      );
     }
 
     return this.formatPaymentResponse(payment);
@@ -252,7 +263,9 @@ export class PaymentService {
    */
   async getPaymentByCode(code: string) {
     // Önce cache'den ID bul
-    const paymentId = await this.redis.get(`payment:code:${code}`);
+    const paymentId = await this.redis.get(
+      TransactionHelper.getPaymentCodeCacheKey(code),
+    );
 
     if (paymentId) {
       return this.getPayment(paymentId);
@@ -268,7 +281,7 @@ export class PaymentService {
     });
 
     if (!payment) {
-      throw new NotFoundException('Payment not found');
+      throw new PaymentNotFoundException(code);
     }
 
     return this.formatPaymentResponse(payment);
@@ -284,15 +297,11 @@ export class PaymentService {
     });
 
     if (!payment) {
-      throw new NotFoundException('Payment not found');
+      throw new PaymentNotFoundException(id);
     }
 
     if (payment.status !== PaymentStatus.PENDING) {
-      throw new BadRequestException(
-        formatErrorMessage(PaymentConstants.ERRORS.PAYMENT_NOT_PENDING, {
-          status: payment.status,
-        }),
-      );
+      throw new InvalidPaymentStatusException(payment.status, 'PENDING');
     }
 
     this.logger.log(`Approving payment ${id} by admin ${adminId}`);
@@ -328,8 +337,9 @@ export class PaymentService {
         select: { status: true },
       });
 
-      throw new BadRequestException(
-        `Payment status changed during approval. Current status: ${currentPayment?.status || 'UNKNOWN'}`
+      throw new InvalidPaymentStatusException(
+        currentPayment?.status || 'UNKNOWN',
+        'PENDING',
       );
     }
 
@@ -384,15 +394,11 @@ export class PaymentService {
     });
 
     if (!payment) {
-      throw new NotFoundException('Payment not found');
+      throw new PaymentNotFoundException(id);
     }
 
     if (payment.status !== PaymentStatus.PENDING) {
-      throw new BadRequestException(
-        formatErrorMessage(PaymentConstants.ERRORS.PAYMENT_NOT_PENDING, {
-          status: payment.status,
-        }),
-      );
+      throw new InvalidPaymentStatusException(payment.status, 'PENDING');
     }
 
     this.logger.log(`Rejecting payment ${id} by admin ${adminId}`);
@@ -418,8 +424,9 @@ export class PaymentService {
         select: { status: true },
       });
 
-      throw new BadRequestException(
-        `Payment status changed during rejection. Current status: ${currentPayment?.status || 'UNKNOWN'}`
+      throw new InvalidPaymentStatusException(
+        currentPayment?.status || 'UNKNOWN',
+        'PENDING',
       );
     }
 
@@ -530,27 +537,6 @@ export class PaymentService {
   }
 
   // Helper Methods
-
-  /**
-   * Validate payment amount against limits
-   */
-  private validatePaymentAmount(amount: number): void {
-    if (amount < PaymentConstants.LIMITS.MIN_PAYMENT_AMOUNT) {
-      throw new BadRequestException(
-        formatErrorMessage(PaymentConstants.ERRORS.AMOUNT_TOO_LOW, {
-          min: PaymentConstants.LIMITS.MIN_PAYMENT_AMOUNT,
-        }),
-      );
-    }
-
-    if (amount > PaymentConstants.LIMITS.MAX_PAYMENT_AMOUNT) {
-      throw new BadRequestException(
-        formatErrorMessage(PaymentConstants.ERRORS.AMOUNT_TOO_HIGH, {
-          max: PaymentConstants.LIMITS.MAX_PAYMENT_AMOUNT,
-        }),
-      );
-    }
-  }
 
   /**
    * Release collateral with retry logic (exponential backoff)

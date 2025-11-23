@@ -1,8 +1,12 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { LoggerService } from '../common/logger/logger.service';
-import { PaymentConstants } from '../common/constants/payment.constants';
+import {
+  PaymentConstants,
+  BankNotAvailableException,
+  CalculationUtil,
+} from '../common';
 
 @Injectable()
 export class BankSelectionService {
@@ -74,7 +78,7 @@ export class BankSelectionService {
     }
 
     if (!eligibleBanks || eligibleBanks.length === 0) {
-      throw new BadRequestException(PaymentConstants.ERRORS.NO_ACTIVE_BANK);
+      throw new BankNotAvailableException();
     }
 
     // 3. Minimum waste ile en uygun hesabı seç
@@ -95,7 +99,7 @@ export class BankSelectionService {
     });
 
     if (!currentBank) {
-      throw new BadRequestException('Seçilen hesap bulunamadı');
+      throw new BankNotAvailableException('Seçilen hesap bulunamadı');
     }
 
     if (!currentBank.is_active || currentBank.is_suspended) {
@@ -188,7 +192,7 @@ export class BankSelectionService {
     });
 
     if (!bank) {
-      throw new BadRequestException('Banka bulunamadı');
+      throw new BankNotAvailableException('Banka bulunamadı');
     }
 
     return {
