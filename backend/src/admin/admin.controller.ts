@@ -1,7 +1,8 @@
-import { Controller, Get, Post, Body, Param, Patch } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Patch, Query } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { PaymentService } from '../payment/payment.service';
 import { OrphanDetectionService } from '../payment/orphan-detection.service';
+import { WebhookService } from '../webhook/webhook.service';
 
 @Controller('admin')
 export class AdminController {
@@ -9,6 +10,7 @@ export class AdminController {
     private adminService: AdminService,
     private paymentService: PaymentService,
     private orphanDetection: OrphanDetectionService,
+    private webhookService: WebhookService,
   ) {}
 
   /**
@@ -83,5 +85,53 @@ export class AdminController {
   @Post('system/cleanup-orphans')
   async cleanupOrphans() {
     return this.orphanDetection.detectAndCleanup();
+  }
+
+  /**
+   * GET /api/v1/admin/webhooks/stats
+   * Get webhook delivery statistics
+   */
+  @Get('webhooks/stats')
+  async getWebhookStats() {
+    return this.webhookService.getWebhookStats();
+  }
+
+  /**
+   * GET /api/v1/admin/webhooks/failed
+   * Get failed webhooks
+   */
+  @Get('webhooks/failed')
+  async getFailedWebhooks(@Query('limit') limit?: string) {
+    const limitNum = limit ? parseInt(limit, 10) : 50;
+    return this.webhookService.getFailedWebhooks(limitNum);
+  }
+
+  /**
+   * GET /api/v1/admin/webhooks/pending
+   * Get pending webhooks waiting for retry
+   */
+  @Get('webhooks/pending')
+  async getPendingWebhooks() {
+    return this.webhookService.getPendingWebhooks();
+  }
+
+  /**
+   * POST /api/v1/admin/webhooks/:id/retry
+   * Manually retry a failed webhook
+   */
+  @Post('webhooks/:id/retry')
+  async retryWebhook(@Param('id') id: string) {
+    await this.webhookService.retryWebhook(id);
+    return { success: true, message: 'Webhook retry initiated' };
+  }
+
+  /**
+   * POST /api/v1/admin/webhooks/retry-all-pending
+   * Manually retry all pending webhooks
+   */
+  @Post('webhooks/retry-all-pending')
+  async retryAllPendingWebhooks() {
+    const count = await this.webhookService.retryPendingWebhooks();
+    return { success: true, retriedCount: count };
   }
 }
