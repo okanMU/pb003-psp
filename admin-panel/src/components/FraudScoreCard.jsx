@@ -2,10 +2,45 @@ import { Shield, AlertTriangle, CheckCircle, XCircle, Info } from 'lucide-react'
 import { useState } from 'react';
 
 /**
- * Calculate fraud score and risk level (mock - would come from backend)
+ * Calculate fraud score and risk level
+ * Uses real data from backend if available, otherwise mock calculation
  */
 export const calculateFraudScore = (transaction) => {
-  // Mock calculation based on amount, time, customer data
+  // Use backend fraud data if available
+  if (transaction.fraudScore !== undefined && transaction.riskLevel) {
+    const riskColors = {
+      LOW: 'green',
+      MEDIUM: 'yellow',
+      HIGH: 'orange',
+      CRITICAL: 'red',
+    };
+
+    const riskLabels = {
+      LOW: 'Düşük Risk',
+      MEDIUM: 'Orta Risk',
+      HIGH: 'Yüksek Risk',
+      CRITICAL: 'Kritik Risk',
+    };
+
+    const riskIcons = {
+      LOW: CheckCircle,
+      MEDIUM: Info,
+      HIGH: AlertTriangle,
+      CRITICAL: XCircle,
+    };
+
+    return {
+      score: transaction.fraudScore,
+      riskLevel: transaction.riskLevel,
+      riskColor: riskColors[transaction.riskLevel] || 'gray',
+      riskLabel: riskLabels[transaction.riskLevel] || transaction.riskLevel,
+      riskIcon: riskIcons[transaction.riskLevel] || Info,
+      triggeredRules: transaction.fraudRules?.triggered_rules || [],
+      requiresManualReview: transaction.fraudRules?.requires_manual_review || false,
+    };
+  }
+
+  // Fallback to mock calculation for testing
   let score = 0;
   const triggeredRules = [];
 

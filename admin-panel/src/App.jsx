@@ -10,11 +10,13 @@ import StatementImport from './pages/StatementImport';
 import AdvancedAnalytics from './pages/AdvancedAnalytics';
 import AutomationRules from './pages/AutomationRules';
 import { WebSocketProvider } from './context/WebSocketContext';
+import { I18nProvider } from './i18n/I18nContext';
 
 function App() {
   return (
-    <WebSocketProvider>
-      <BrowserRouter>
+    <I18nProvider>
+      <WebSocketProvider>
+        <BrowserRouter>
         <Routes>
           {/* Customer-facing payment widget (no layout) */}
           <Route path="/payment/:paymentId" element={<PaymentWidget />} />
@@ -34,6 +36,7 @@ function App() {
         </Routes>
       </BrowserRouter>
     </WebSocketProvider>
+    </I18nProvider>
   );
 }
 

@@ -119,9 +119,14 @@ export class AdminService {
         amount: parseFloat(payment.amount.toString()),
         customerEmail: payment.customer_email,
         customerPhone: payment.customer_phone,
+        customerName: payment.customer_name,
         createdAt: payment.created_at,
         expiresAt: payment.expires_at,
         remainingMinutes: this.calculateRemainingMinutes(payment.expires_at),
+        // Fraud detection data
+        fraudScore: payment.fraud_score || 0,
+        riskLevel: payment.risk_level || 'LOW',
+        fraudRules: payment.fraud_rules || null,
       });
 
       acc[bankId].totalExpectedAmount += parseFloat(payment.amount.toString());

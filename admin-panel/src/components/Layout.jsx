@@ -11,6 +11,7 @@ import {
   Building2,
 } from 'lucide-react';
 import { useWebSocket } from '../context/WebSocketContext';
+import LanguageSwitcher from './LanguageSwitcher';
 
 export default function Layout() {
   const location = useLocation();
@@ -59,6 +60,9 @@ export default function Layout() {
                   </>
                 )}
               </div>
+
+              {/* Language Switcher */}
+              <LanguageSwitcher />
 
               {/* Notifications */}
               <button className="relative p-2 hover:bg-gray-100 rounded-lg">

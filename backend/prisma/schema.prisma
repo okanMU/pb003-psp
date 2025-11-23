@@ -139,6 +139,11 @@ model Transaction {
   // Admin Notları
   admin_notes       String?
 
+  // Fraud Detection
+  fraud_score       Int?              @default(0) // 0-100
+  risk_level        String?           @default("LOW") // LOW, MEDIUM, HIGH, CRITICAL
+  fraud_rules       Json?             // Triggered rules details
+
   // Zaman Bilgileri
   expires_at        DateTime
   created_at        DateTime          @default(now())
