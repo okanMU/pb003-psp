@@ -18,6 +18,7 @@ import { WebsocketModule } from './websocket/websocket.module';
 import { BankModule } from './bank/bank.module';
 import { PlatformModule } from './platform/platform.module';
 import { HealthModule } from './health/health.module';
+import { CollateralModule } from './collateral/collateral.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { HealthModule } from './health/health.module';
     BankModule,
     PlatformModule,
     HealthModule,
+    CollateralModule,
   ],
 })
 export class AppModule {}

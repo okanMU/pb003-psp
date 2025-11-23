@@ -5,12 +5,15 @@ import { PaymentService } from './payment.service';
 import { RefCodeService } from './ref-code.service';
 import { CommissionService } from './commission.service';
 import { PaymentProcessor } from './payment.processor';
+import { PaymentScheduler } from './payment.scheduler';
+import { CollateralModule } from '../collateral/collateral.module';
 
 @Module({
   imports: [
     BullModule.registerQueue({
       name: 'payment',
     }),
+    CollateralModule,
   ],
   controllers: [PaymentController],
   providers: [
@@ -18,6 +21,7 @@ import { PaymentProcessor } from './payment.processor';
     RefCodeService,
     CommissionService,
     PaymentProcessor,
+    PaymentScheduler,
   ],
   exports: [PaymentService],
 })

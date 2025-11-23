@@ -126,6 +126,29 @@ export class PaymentGateway
     await this.redis.subscribe('payment:expired', (message) => {
       this.broadcastPaymentUpdate(message.id, 'expired');
     });
+
+    // collateral:locked (for spinner state: processing)
+    await this.redis.subscribe('collateral:locked', (message) => {
+      if (message.transaction_id) {
+        this.server.to(`payment:${message.transaction_id}`).emit('payment:processing', {
+          transaction_id: message.transaction_id,
+          bank_id: message.bank_id,
+          amount: message.amount,
+          status: 'processing',
+        });
+      }
+    });
+
+    // bank:suspended (might affect pending payments)
+    await this.redis.subscribe('bank:suspended', (message) => {
+      // Notify all payments using this bank
+      this.broadcastBankStatusChange(message.bank_id, 'suspended');
+    });
+
+    // bank:reactivated
+    await this.redis.subscribe('bank:reactivated', (message) => {
+      this.broadcastBankStatusChange(message.bank_id, 'active');
+    });
   }
 
   /**
@@ -188,5 +211,35 @@ export class PaymentGateway
       paymentId,
       secondsRemaining,
     });
+  }
+
+  /**
+   * Banka durumu değiştiğinde ilgili ödemelere bildir
+   */
+  private async broadcastBankStatusChange(bankId: string, status: string) {
+    // Bu bankayı kullanan PENDING ödemeleri bul
+    const affectedPayments = await this.prisma.transaction.findMany({
+      where: {
+        bank_id: bankId,
+        status: 'PENDING',
+      },
+      select: {
+        id: true,
+        transaction_code: true,
+      },
+    });
+
+    // Her bir ödemeye bildir
+    for (const payment of affectedPayments) {
+      this.server.to(`payment:${payment.id}`).emit('bank:status_changed', {
+        payment_id: payment.id,
+        bank_id: bankId,
+        bank_status: status,
+      });
+    }
+
+    console.log(
+      `📤 Bank status change broadcasted: ${bankId} - ${status} (${affectedPayments.length} payments affected)`,
+    );
   }
 }

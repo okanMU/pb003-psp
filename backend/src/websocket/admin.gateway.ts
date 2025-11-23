@@ -86,6 +86,84 @@ export class AdminGateway
 
       this.broadcastDashboardUpdate();
     });
+
+    // Ödeme süresi dolduğunda
+    await this.redis.subscribe('payment:expired', (message) => {
+      this.server.emit('notification', {
+        type: 'payment_expired',
+        message: `Ödeme süresi doldu: ${message.code}`,
+        data: message,
+        timestamp: new Date(),
+      });
+
+      this.broadcastDashboardUpdate();
+    });
+
+    // Teminat kilitlendiğinde
+    await this.redis.subscribe('collateral:locked', (message) => {
+      this.server.emit('notification', {
+        type: 'collateral_locked',
+        message: `Teminat kilitlendi: ${message.bank_name} - ${message.amount} TRY`,
+        data: message,
+        timestamp: new Date(),
+      });
+
+      // Real-time bank status update
+      this.server.emit('bank:status', {
+        bank_id: message.bank_id,
+        available_collateral: message.available_collateral,
+        is_suspended: message.is_suspended,
+      });
+    });
+
+    // Teminat serbest bırakıldığında
+    await this.redis.subscribe('collateral:released', (message) => {
+      this.server.emit('notification', {
+        type: 'collateral_released',
+        message: `Teminat serbest bırakıldı: ${message.bank_name} - ${message.amount} TRY`,
+        data: message,
+        timestamp: new Date(),
+      });
+
+      // Real-time bank status update
+      this.server.emit('bank:status', {
+        bank_id: message.bank_id,
+        available_collateral: message.available_collateral,
+        is_suspended: message.is_suspended,
+      });
+    });
+
+    // Banka askıya alındığında
+    await this.redis.subscribe('bank:suspended', (message) => {
+      this.server.emit('notification', {
+        type: 'bank_suspended',
+        message: `⚠️ Banka askıya alındı: ${message.bank_name} (Teminat doldu)`,
+        data: message,
+        timestamp: new Date(),
+      });
+
+      this.server.emit('bank:status', {
+        bank_id: message.bank_id,
+        is_suspended: true,
+        available_collateral: 0,
+      });
+    });
+
+    // Banka yeniden aktif olduğunda
+    await this.redis.subscribe('bank:reactivated', (message) => {
+      this.server.emit('notification', {
+        type: 'bank_reactivated',
+        message: `✅ Banka yeniden aktif: ${message.bank_name}`,
+        data: message,
+        timestamp: new Date(),
+      });
+
+      this.server.emit('bank:status', {
+        bank_id: message.bank_id,
+        is_suspended: false,
+        available_collateral: message.available_collateral,
+      });
+    });
   }
 
   /**

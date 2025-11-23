@@ -3,6 +3,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { RefCodeService } from './ref-code.service';
 import { CommissionService } from './commission.service';
+import { CollateralService } from '../collateral/collateral.service';
+import { BankSelectionService } from '../collateral/bank-selection.service';
+import { LoggerService } from '../common/logger/logger.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { PaymentStatus } from '@prisma/client';
 import * as dayjs from 'dayjs';
@@ -14,7 +17,12 @@ export class PaymentService {
     private redis: RedisService,
     private refCode: RefCodeService,
     private commission: CommissionService,
-  ) {}
+    private collateral: CollateralService,
+    private bankSelection: BankSelectionService,
+    private logger: LoggerService,
+  ) {
+    this.logger.setContext('PaymentService');
+  }
 
   /**
    * Yeni ödeme oluştur
@@ -24,6 +32,8 @@ export class PaymentService {
     dto: CreatePaymentDto,
     customerIp?: string,
   ) {
+    this.logger.log(`Creating payment for platform ${platformId}, amount: ${dto.amount}`);
+
     // Platform kontrolü
     const platform = await this.prisma.platform.findUnique({
       where: { id: platformId, is_active: true },
@@ -33,18 +43,16 @@ export class PaymentService {
       throw new BadRequestException('Invalid platform');
     }
 
-    // Aktif banka seç (round-robin veya random)
-    const bank = await this.selectBank();
-    if (!bank) {
-      throw new BadRequestException('No active bank available');
-    }
+    // Akıllı hesap seçimi (minimum waste strategy + collateral check)
+    const bank = await this.bankSelection.selectBestBank(dto.amount);
+    this.logger.log(`Selected bank ${bank.id} (${bank.name}) for payment`);
 
     // Ref kod üret
     const transactionCode = this.refCode.generate();
 
-    // Expiry hesapla (30 dakika)
+    // Expiry hesapla (5 dakika - collateral lock süresi)
     const expiresAt = dayjs()
-      .add(parseInt(process.env.PAYMENT_EXPIRY_MINUTES) || 30, 'minute')
+      .add(5, 'minute')
       .toDate();
 
     // Transaction oluştur
@@ -63,6 +71,7 @@ export class PaymentService {
         platform_order_id: dto.platform_order_id,
         metadata: dto.metadata || {},
         expires_at: expiresAt,
+        lock_expires_at: expiresAt, // Collateral lock expires with payment
       },
       include: {
         bank: true,
@@ -70,22 +79,40 @@ export class PaymentService {
       },
     });
 
+    this.logger.log(`Transaction created: ${transaction.id} (${transactionCode})`);
+
+    // Teminat kilitle (atomic operation with race condition prevention)
+    try {
+      await this.collateral.lockCollateral(
+        bank.id,
+        transaction.id,
+        dto.amount,
+      );
+      this.logger.log(`Collateral locked for transaction ${transaction.id}`);
+    } catch (error) {
+      // Collateral locking failed - rollback transaction
+      await this.prisma.transaction.delete({ where: { id: transaction.id } });
+      this.logger.error(`Failed to lock collateral, transaction rolled back: ${error.message}`);
+      throw error;
+    }
+
     // Event log
     await this.createEvent(transaction.id, 'created', {
       amount: dto.amount,
       bank: bank.name,
+      collateral_locked: true,
     });
 
     // Redis cache (hızlı erişim için)
     await this.redis.set(
       `payment:${transaction.id}`,
       transaction,
-      1800, // 30 dakika
+      300, // 5 dakika
     );
     await this.redis.set(
       `payment:code:${transactionCode}`,
       transaction.id,
-      1800,
+      300,
     );
 
     // Pub/Sub - Real-time notification
@@ -93,6 +120,7 @@ export class PaymentService {
       id: transaction.id,
       code: transactionCode,
       amount: transaction.amount,
+      bank_id: bank.id,
     });
 
     return this.formatPaymentResponse(transaction);
@@ -159,7 +187,7 @@ export class PaymentService {
   async approvePayment(id: string, adminId: string) {
     const payment = await this.prisma.transaction.findUnique({
       where: { id },
-      include: { platform: true },
+      include: { platform: true, bank: true },
     });
 
     if (!payment) {
@@ -169,6 +197,8 @@ export class PaymentService {
     if (payment.status !== PaymentStatus.PENDING) {
       throw new BadRequestException('Payment is not pending');
     }
+
+    this.logger.log(`Approving payment ${id} by admin ${adminId}`);
 
     // Komisyon hesapla
     const commissions = this.commission.calculate(
@@ -193,10 +223,20 @@ export class PaymentService {
       },
     });
 
+    // Teminat serbest bırak (collateral release)
+    try {
+      await this.collateral.releaseCollateral(payment.bank_id, id);
+      this.logger.log(`Collateral released for approved payment ${id}`);
+    } catch (error) {
+      this.logger.warn(`Failed to release collateral for payment ${id}: ${error.message}`);
+      // Don't rollback approval - just log the warning
+    }
+
     // Event log
     await this.createEvent(id, 'approved', {
       admin_id: adminId,
       commissions,
+      collateral_released: true,
     });
 
     // Cache güncelle
@@ -206,6 +246,7 @@ export class PaymentService {
     await this.redis.publish('payment:approved', {
       id: updated.id,
       code: updated.transaction_code,
+      bank_id: payment.bank_id,
     });
 
     return this.formatPaymentResponse(updated);
@@ -217,6 +258,7 @@ export class PaymentService {
   async rejectPayment(id: string, adminId: string, reason?: string) {
     const payment = await this.prisma.transaction.findUnique({
       where: { id },
+      include: { bank: true },
     });
 
     if (!payment) {
@@ -226,6 +268,8 @@ export class PaymentService {
     if (payment.status !== PaymentStatus.PENDING) {
       throw new BadRequestException('Payment is not pending');
     }
+
+    this.logger.log(`Rejecting payment ${id} by admin ${adminId}`);
 
     const updated = await this.prisma.transaction.update({
       where: { id },
@@ -241,10 +285,20 @@ export class PaymentService {
       },
     });
 
+    // Teminat serbest bırak (collateral release)
+    try {
+      await this.collateral.releaseCollateral(payment.bank_id, id);
+      this.logger.log(`Collateral released for rejected payment ${id}`);
+    } catch (error) {
+      this.logger.warn(`Failed to release collateral for payment ${id}: ${error.message}`);
+      // Don't rollback rejection - just log the warning
+    }
+
     // Event log
     await this.createEvent(id, 'rejected', {
       admin_id: adminId,
       reason,
+      collateral_released: true,
     });
 
     // Cache güncelle
@@ -255,46 +309,77 @@ export class PaymentService {
       id: updated.id,
       code: updated.transaction_code,
       reason,
+      bank_id: payment.bank_id,
     });
 
     return this.formatPaymentResponse(updated);
   }
 
   /**
-   * Süresi dolan ödemeleri işaretle
+   * Süresi dolan ödemeleri işaretle ve teminatları serbest bırak
    */
   async expirePayments() {
-    const expired = await this.prisma.transaction.updateMany({
+    // Süresi dolmuş PENDING ödemeleri bul
+    const expiredPayments = await this.prisma.transaction.findMany({
       where: {
         status: PaymentStatus.PENDING,
         expires_at: {
           lt: new Date(),
         },
       },
-      data: {
-        status: PaymentStatus.EXPIRED,
+      select: {
+        id: true,
+        transaction_code: true,
+        bank_id: true,
       },
     });
 
-    if (expired.count > 0) {
-      console.log(`⏰ ${expired.count} payments expired`);
+    if (expiredPayments.length === 0) {
+      return { count: 0 };
     }
 
-    return expired;
+    this.logger.log(`Processing ${expiredPayments.length} expired payments`);
+
+    // Her bir ödeme için: status güncelle + collateral release
+    for (const payment of expiredPayments) {
+      try {
+        // Status güncelle
+        await this.prisma.transaction.update({
+          where: { id: payment.id },
+          data: { status: PaymentStatus.EXPIRED },
+        });
+
+        // Teminat serbest bırak
+        await this.collateral.releaseCollateral(payment.bank_id, payment.id);
+
+        // Event log
+        await this.createEvent(payment.id, 'expired', {
+          collateral_released: true,
+        });
+
+        // Cache temizle
+        await this.redis.del(`payment:${payment.id}`);
+        await this.redis.del(`payment:code:${payment.transaction_code}`);
+
+        // Pub/Sub
+        await this.redis.publish('payment:expired', {
+          id: payment.id,
+          code: payment.transaction_code,
+          bank_id: payment.bank_id,
+        });
+
+        this.logger.log(`Payment ${payment.id} expired and collateral released`);
+      } catch (error) {
+        this.logger.error(`Failed to expire payment ${payment.id}: ${error.message}`);
+      }
+    }
+
+    this.logger.log(`⏰ ${expiredPayments.length} payments expired`);
+
+    return { count: expiredPayments.length };
   }
 
   // Helper Methods
-
-  private async selectBank() {
-    const banks = await this.prisma.bank.findMany({
-      where: { is_active: true },
-    });
-
-    if (banks.length === 0) return null;
-
-    // Simple random selection
-    return banks[Math.floor(Math.random() * banks.length)];
-  }
 
   private async createEvent(
     transactionId: string,

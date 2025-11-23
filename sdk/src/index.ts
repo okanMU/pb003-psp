@@ -17,7 +17,7 @@ export interface Payment {
   code: string;
   amount: number;
   currency: string;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
+  status: 'PENDING' | 'PROCESSING' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
   bank: {
     name: string;
     iban: string;
@@ -217,12 +217,20 @@ export class PaymentWidget {
   private renderContent(): string {
     if (!this.payment) return '<div>Loading...</div>';
 
+    if (this.payment.status === 'PROCESSING') {
+      return this.renderProcessing();
+    }
+
     if (this.payment.status === 'APPROVED') {
       return this.renderSuccess();
     }
 
-    if (this.payment.status === 'REJECTED' || this.payment.status === 'EXPIRED') {
-      return this.renderError();
+    if (this.payment.status === 'REJECTED') {
+      return this.renderRejected();
+    }
+
+    if (this.payment.status === 'EXPIRED') {
+      return this.renderExpired();
     }
 
     return this.renderPending();
@@ -303,6 +311,45 @@ export class PaymentWidget {
     `;
   }
 
+  private renderProcessing(): string {
+    return `
+      <div style="text-align: center;">
+        <div style="margin-bottom: 16px;">
+          <div class="pspay-spinner" style="
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3B82F6;
+            border-radius: 50%;
+            width: 64px;
+            height: 64px;
+            animation: pspay-spin 1s linear infinite;
+            margin: 0 auto;
+          "></div>
+          <style>
+            @keyframes pspay-spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          </style>
+        </div>
+        <h2 style="font-size: 24px; font-weight: bold; margin-bottom: 8px; color: #3B82F6;">
+          İşleniyor...
+        </h2>
+        <p style="color: #666; margin-bottom: 24px;">
+          Ödemeniz kontrol ediliyor. Lütfen bekleyin.
+        </p>
+        <div style="
+          background: #DBEAFE;
+          color: #1E40AF;
+          padding: 12px;
+          border-radius: 8px;
+          font-size: 14px;
+        ">
+          Bu işlem birkaç saniye sürebilir.
+        </div>
+      </div>
+    `;
+  }
+
   private renderSuccess(): string {
     return `
       <div style="text-align: center;">
@@ -331,21 +378,49 @@ export class PaymentWidget {
     `;
   }
 
-  private renderError(): string {
+  private renderRejected(): string {
     return `
       <div style="text-align: center;">
         <div style="font-size: 64px; margin-bottom: 16px;">❌</div>
         <h2 style="font-size: 24px; font-weight: bold; margin-bottom: 8px; color: #DC2626;">
-          ${this.payment?.status === 'REJECTED' ? 'Ödeme Reddedildi' : 'Süre Doldu'}
+          Ödeme Reddedildi
         </h2>
         <p style="color: #666; margin-bottom: 24px;">
-          Lütfen yeni bir ödeme oluşturun.
+          Ödemeniz sistem tarafından reddedildi. Lütfen yeni bir ödeme oluşturun.
         </p>
         <button
           onclick="document.getElementById('pspay-overlay').remove()"
           style="
             padding: 12px 24px;
             background: #DC2626;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+          "
+        >
+          Kapat
+        </button>
+      </div>
+    `;
+  }
+
+  private renderExpired(): string {
+    return `
+      <div style="text-align: center;">
+        <div style="font-size: 64px; margin-bottom: 16px;">⚠️</div>
+        <h2 style="font-size: 24px; font-weight: bold; margin-bottom: 8px; color: #D97706;">
+          Süre Doldu
+        </h2>
+        <p style="color: #666; margin-bottom: 24px;">
+          Ödeme süresi doldu. Lütfen yeni bir ödeme oluşturun.
+        </p>
+        <button
+          onclick="document.getElementById('pspay-overlay').remove()"
+          style="
+            padding: 12px 24px;
+            background: #D97706;
             color: white;
             border: none;
             border-radius: 8px;
@@ -366,9 +441,24 @@ export class PaymentWidget {
 
     this.socket.emit('subscribe', { paymentId: this.paymentId });
 
+    // Payment status updates
     this.socket.on('payment:updated', (data) => {
       this.payment = { ...this.payment, ...data };
       this.updateUI();
+    });
+
+    // Processing state (collateral locked, admin checking)
+    this.socket.on('payment:processing', (data) => {
+      if (this.payment) {
+        this.payment.status = 'PROCESSING';
+        this.updateUI();
+      }
+    });
+
+    // Bank status changes
+    this.socket.on('bank:status_changed', (data) => {
+      console.log('Bank status changed:', data);
+      // Could show a notification if bank becomes unavailable
     });
   }
 
