@@ -1,9 +1,10 @@
-import { Controller, Get, Post, Body, Param, Patch, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Patch, Query, Delete } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { PaymentService } from '../payment/payment.service';
 import { OrphanDetectionService } from '../payment/orphan-detection.service';
 import { WebhookService } from '../webhook/webhook.service';
 import { MetricsService } from '../common/monitoring/metrics.service';
+import { FraudDetectionService } from '../security/fraud-detection.service';
 
 @Controller('admin')
 export class AdminController {
@@ -13,6 +14,7 @@ export class AdminController {
     private orphanDetection: OrphanDetectionService,
     private webhookService: WebhookService,
     private metricsService: MetricsService,
+    private fraudDetection: FraudDetectionService,
   ) {}
 
   /**
@@ -180,5 +182,138 @@ export class AdminController {
   @Get('metrics/system-health')
   async getSystemHealth() {
     return this.metricsService.getSystemHealth();
+  }
+
+  // ================== SECURITY & FRAUD MANAGEMENT ==================
+
+  /**
+   * GET /api/v1/admin/security/fraud-stats
+   * Get fraud detection statistics
+   */
+  @Get('security/fraud-stats')
+  async getFraudStats(@Query('date') date?: string) {
+    return this.fraudDetection.getFraudStats(date);
+  }
+
+  /**
+   * GET /api/v1/admin/security/events
+   * Get security event logs with pagination
+   */
+  @Get('security/events')
+  async getSecurityEvents(
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+    @Query('platform_id') platformId?: string,
+    @Query('risk_level') riskLevel?: string,
+  ) {
+    return this.fraudDetection.getSecurityEvents({
+      limit: limit ? parseInt(limit) : 50,
+      offset: offset ? parseInt(offset) : 0,
+      platformId,
+      riskLevel,
+    });
+  }
+
+  /**
+   * GET /api/v1/admin/security/high-risk-transactions
+   * Get transactions that require manual review
+   */
+  @Get('security/high-risk-transactions')
+  async getHighRiskTransactions() {
+    return this.fraudDetection.getHighRiskTransactions();
+  }
+
+  /**
+   * POST /api/v1/admin/security/ip-blacklist
+   * Add IP address to blacklist
+   */
+  @Post('security/ip-blacklist')
+  async blacklistIp(
+    @Body() body: { ip: string; reason: string; adminId?: string },
+  ) {
+    await this.fraudDetection.blacklistIp(body.ip, body.reason, body.adminId);
+    return {
+      success: true,
+      message: `IP ${body.ip} has been blacklisted`,
+    };
+  }
+
+  /**
+   * DELETE /api/v1/admin/security/ip-blacklist/:ip
+   * Remove IP address from blacklist
+   */
+  @Delete('security/ip-blacklist/:ip')
+  async removeIpFromBlacklist(
+    @Param('ip') ip: string,
+    @Body() body: { adminId?: string },
+  ) {
+    await this.fraudDetection.removeIpFromBlacklist(ip, body.adminId);
+    return {
+      success: true,
+      message: `IP ${ip} has been removed from blacklist`,
+    };
+  }
+
+  /**
+   * GET /api/v1/admin/security/ip-blacklist
+   * Get all blacklisted IPs
+   */
+  @Get('security/ip-blacklist')
+  async getBlacklistedIps() {
+    return this.fraudDetection.getBlacklistedIps();
+  }
+
+  /**
+   * POST /api/v1/admin/security/customer-risk
+   * Mark customer as high risk
+   */
+  @Post('security/customer-risk')
+  async markCustomerHighRisk(
+    @Body() body: { email?: string; phone?: string; reason: string; adminId?: string },
+  ) {
+    if (!body.email && !body.phone) {
+      throw new Error('Either email or phone must be provided');
+    }
+    await this.fraudDetection.markCustomerHighRisk(
+      body.email,
+      body.phone,
+      body.reason,
+      body.adminId,
+    );
+    return {
+      success: true,
+      message: 'Customer has been marked as high risk',
+    };
+  }
+
+  /**
+   * DELETE /api/v1/admin/security/customer-risk
+   * Remove high risk flag from customer
+   */
+  @Delete('security/customer-risk')
+  async removeCustomerHighRisk(
+    @Body() body: { email?: string; phone?: string; adminId?: string },
+  ) {
+    if (!body.email && !body.phone) {
+      throw new Error('Either email or phone must be provided');
+    }
+    await this.fraudDetection.removeCustomerHighRisk(
+      body.email,
+      body.phone,
+      body.adminId,
+    );
+    return {
+      success: true,
+      message: 'High risk flag removed from customer',
+    };
+  }
+
+  /**
+   * GET /api/v1/admin/security/high-risk-customers
+   * Get all high risk customers
+   */
+  @Get('security/high-risk-customers')
+  async getHighRiskCustomers() {
+    return this.fraudDetection.getHighRiskCustomers();
   }
 }

@@ -10,6 +10,7 @@ import { RedisModule } from './redis/redis.module';
 import { LoggerModule } from './common/logger/logger.module';
 import { MonitoringModule } from './common/monitoring/monitoring.module';
 import { MetricsMiddleware } from './common/monitoring/metrics.middleware';
+import { SecurityModule } from './security/security.module';
 
 // Feature Modules
 import { AuthModule } from './auth/auth.module';
@@ -53,6 +54,7 @@ import { CollateralModule } from './collateral/collateral.module';
     RedisModule,
     LoggerModule,
     MonitoringModule,
+    SecurityModule,
 
     // Features
     AuthModule,

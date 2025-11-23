@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { RefCodeService } from './ref-code.service';
@@ -6,6 +6,7 @@ import { CommissionService } from './commission.service';
 import { CollateralService } from '../collateral/collateral.service';
 import { BankSelectionService } from '../collateral/bank-selection.service';
 import { LoggerService } from '../common/logger/logger.service';
+import { FraudDetectionService } from '../security/fraud-detection.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { PaymentStatus } from '@prisma/client';
 import { PaymentConstants, formatErrorMessage } from '../common/constants/payment.constants';
@@ -21,6 +22,7 @@ export class PaymentService {
     private collateral: CollateralService,
     private bankSelection: BankSelectionService,
     private logger: LoggerService,
+    private fraudDetection: FraudDetectionService,
   ) {
     this.logger.setContext('PaymentService');
   }
@@ -45,6 +47,53 @@ export class PaymentService {
 
     if (!platform) {
       throw new BadRequestException(PaymentConstants.ERRORS.INVALID_PLATFORM);
+    }
+
+    // Fraud Detection - Analyze transaction for security risks
+    const fraudAnalysis = await this.fraudDetection.analyzeTransaction(
+      platformId,
+      dto.amount,
+      dto.customer_email,
+      dto.customer_phone,
+      customerIp,
+    );
+
+    this.logger.log(
+      `Fraud analysis result - Risk: ${fraudAnalysis.riskLevel} (${fraudAnalysis.riskScore}/100), ` +
+      `Blocked: ${fraudAnalysis.isBlocked}, Manual Review: ${fraudAnalysis.requiresManualReview}, ` +
+      `Triggered Rules: ${fraudAnalysis.triggeredRules.length}`,
+    );
+
+    // Block transaction if CRITICAL risk detected
+    if (fraudAnalysis.isBlocked) {
+      const ruleMessages = fraudAnalysis.triggeredRules
+        .map((rule) => rule.message)
+        .join(', ');
+
+      this.logger.warn(
+        `Transaction blocked due to high fraud risk. Platform: ${platformId}, ` +
+        `Amount: ${dto.amount}, IP: ${customerIp}, Rules: ${ruleMessages}`,
+      );
+
+      // Log security event
+      await this.fraudDetection.logSecurityEvent(
+        platformId,
+        'transaction_blocked',
+        fraudAnalysis.riskLevel,
+        {
+          amount: dto.amount,
+          customer_email: dto.customer_email,
+          customer_phone: dto.customer_phone,
+          customer_ip: customerIp,
+          triggered_rules: fraudAnalysis.triggeredRules,
+          risk_score: fraudAnalysis.riskScore,
+        },
+      );
+
+      throw new ForbiddenException(
+        `İşlem güvenlik nedeniyle engellenmiştir. Risk seviyesi: ${fraudAnalysis.riskLevel}. ` +
+        `Lütfen müşteri hizmetleri ile iletişime geçin.`,
+      );
     }
 
     // Akıllı hesap seçimi (minimum waste strategy + collateral check)
@@ -73,7 +122,20 @@ export class PaymentService {
         customer_name: dto.customer_name,
         customer_ip: customerIp,
         platform_order_id: dto.platform_order_id,
-        metadata: dto.metadata || {},
+        metadata: {
+          ...(dto.metadata || {}),
+          fraud_analysis: {
+            risk_level: fraudAnalysis.riskLevel,
+            risk_score: fraudAnalysis.riskScore,
+            requires_manual_review: fraudAnalysis.requiresManualReview,
+            triggered_rules: fraudAnalysis.triggeredRules.map((r) => ({
+              type: r.type,
+              message: r.message,
+              severity: r.severity,
+            })),
+            analyzed_at: new Date().toISOString(),
+          },
+        },
         expires_at: expiresAt,
         lock_expires_at: expiresAt, // Collateral lock expires with payment
       },
@@ -106,6 +168,33 @@ export class PaymentService {
       bank: bank.name,
       collateral_locked: true,
     });
+
+    // Security event logging for flagged transactions
+    if (fraudAnalysis.requiresManualReview || fraudAnalysis.riskLevel !== 'LOW') {
+      await this.fraudDetection.logSecurityEvent(
+        platformId,
+        'transaction_flagged',
+        fraudAnalysis.riskLevel,
+        {
+          transaction_id: transaction.id,
+          transaction_code: transactionCode,
+          amount: dto.amount,
+          customer_email: dto.customer_email,
+          customer_phone: dto.customer_phone,
+          customer_ip: customerIp,
+          triggered_rules: fraudAnalysis.triggeredRules,
+          risk_score: fraudAnalysis.riskScore,
+          requires_manual_review: fraudAnalysis.requiresManualReview,
+        },
+      );
+
+      if (fraudAnalysis.requiresManualReview) {
+        this.logger.warn(
+          `Transaction ${transaction.id} requires manual review. ` +
+          `Risk: ${fraudAnalysis.riskLevel}, Score: ${fraudAnalysis.riskScore}`,
+        );
+      }
+    }
 
     // Redis cache (hızlı erişim için)
     await this.redis.set(
