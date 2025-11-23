@@ -199,7 +199,11 @@ export class PaymentService {
     }
 
     if (payment.status !== PaymentStatus.PENDING) {
-      throw new BadRequestException('Payment is not pending');
+      throw new BadRequestException(
+        formatErrorMessage(PaymentConstants.ERRORS.PAYMENT_NOT_PENDING, {
+          status: payment.status,
+        }),
+      );
     }
 
     this.logger.log(`Approving payment ${id} by admin ${adminId}`);
@@ -210,9 +214,13 @@ export class PaymentService {
       payment.platform.commission_rate,
     );
 
-    // Güncelle
-    const updated = await this.prisma.transaction.update({
-      where: { id },
+    // Güncelle with optimistic locking (race condition prevention)
+    // Only update if status is still PENDING
+    const updated = await this.prisma.transaction.updateMany({
+      where: {
+        id,
+        status: PaymentStatus.PENDING, // Race condition check
+      },
       data: {
         status: PaymentStatus.APPROVED,
         approved_by_id: adminId,
@@ -221,19 +229,40 @@ export class PaymentService {
         psp_commission: commissions.pspCommission,
         net_amount: commissions.netAmount,
       },
+    });
+
+    // Check if update succeeded (status was still PENDING)
+    if (updated.count === 0) {
+      // Payment status changed while we were processing
+      const currentPayment = await this.prisma.transaction.findUnique({
+        where: { id },
+        select: { status: true },
+      });
+
+      throw new BadRequestException(
+        `Payment status changed during approval. Current status: ${currentPayment?.status || 'UNKNOWN'}`
+      );
+    }
+
+    // Fetch the updated transaction with relations
+    const approvedPayment = await this.prisma.transaction.findUnique({
+      where: { id },
       include: {
         bank: true,
         platform: true,
       },
     });
 
-    // Teminat serbest bırak (collateral release)
+    // Teminat serbest bırak (collateral release with retry)
     try {
-      await this.collateral.releaseCollateral(payment.bank_id, id);
+      await this.releaseCollateralWithRetry(payment.bank_id, id, 'APPROVED');
       this.logger.log(`Collateral released for approved payment ${id}`);
     } catch (error) {
-      this.logger.warn(`Failed to release collateral for payment ${id}: ${error.message}`);
-      // Don't rollback approval - just log the warning
+      this.logger.error(
+        `Failed to release collateral for payment ${id} after retries: ${error.message}. ` +
+        `Orphan cleanup job will handle this.`
+      );
+      // Don't rollback approval - orphan cleanup job will fix this later
     }
 
     // Event log
@@ -244,16 +273,16 @@ export class PaymentService {
     });
 
     // Cache güncelle
-    await this.redis.set(`payment:${id}`, updated, 1800);
+    await this.redis.set(`payment:${id}`, approvedPayment, PaymentConstants.TIME.LONG_CACHE_TTL_SECONDS);
 
     // Pub/Sub
     await this.redis.publish('payment:approved', {
-      id: updated.id,
-      code: updated.transaction_code,
+      id: approvedPayment.id,
+      code: approvedPayment.transaction_code,
       bank_id: payment.bank_id,
     });
 
-    return this.formatPaymentResponse(updated);
+    return this.formatPaymentResponse(approvedPayment);
   }
 
   /**
@@ -270,32 +299,60 @@ export class PaymentService {
     }
 
     if (payment.status !== PaymentStatus.PENDING) {
-      throw new BadRequestException('Payment is not pending');
+      throw new BadRequestException(
+        formatErrorMessage(PaymentConstants.ERRORS.PAYMENT_NOT_PENDING, {
+          status: payment.status,
+        }),
+      );
     }
 
     this.logger.log(`Rejecting payment ${id} by admin ${adminId}`);
 
-    const updated = await this.prisma.transaction.update({
-      where: { id },
+    // Update with optimistic locking (race condition prevention)
+    const updated = await this.prisma.transaction.updateMany({
+      where: {
+        id,
+        status: PaymentStatus.PENDING, // Race condition check
+      },
       data: {
         status: PaymentStatus.REJECTED,
         rejected_by_id: adminId,
         rejected_at: new Date(),
         rejection_reason: reason,
       },
+    });
+
+    // Check if update succeeded
+    if (updated.count === 0) {
+      const currentPayment = await this.prisma.transaction.findUnique({
+        where: { id },
+        select: { status: true },
+      });
+
+      throw new BadRequestException(
+        `Payment status changed during rejection. Current status: ${currentPayment?.status || 'UNKNOWN'}`
+      );
+    }
+
+    // Fetch the updated transaction with relations
+    const rejectedPayment = await this.prisma.transaction.findUnique({
+      where: { id },
       include: {
         bank: true,
         platform: true,
       },
     });
 
-    // Teminat serbest bırak (collateral release)
+    // Teminat serbest bırak (collateral release with retry)
     try {
-      await this.collateral.releaseCollateral(payment.bank_id, id);
+      await this.releaseCollateralWithRetry(payment.bank_id, id, 'REJECTED');
       this.logger.log(`Collateral released for rejected payment ${id}`);
     } catch (error) {
-      this.logger.warn(`Failed to release collateral for payment ${id}: ${error.message}`);
-      // Don't rollback rejection - just log the warning
+      this.logger.error(
+        `Failed to release collateral for payment ${id} after retries: ${error.message}. ` +
+        `Orphan cleanup job will handle this.`
+      );
+      // Don't rollback rejection - orphan cleanup job will fix this later
     }
 
     // Event log
@@ -306,17 +363,17 @@ export class PaymentService {
     });
 
     // Cache güncelle
-    await this.redis.set(`payment:${id}`, updated, 1800);
+    await this.redis.set(`payment:${id}`, rejectedPayment, PaymentConstants.TIME.LONG_CACHE_TTL_SECONDS);
 
     // Pub/Sub
     await this.redis.publish('payment:rejected', {
-      id: updated.id,
-      code: updated.transaction_code,
+      id: rejectedPayment.id,
+      code: rejectedPayment.transaction_code,
       reason,
       bank_id: payment.bank_id,
     });
 
-    return this.formatPaymentResponse(updated);
+    return this.formatPaymentResponse(rejectedPayment);
   }
 
   /**
@@ -402,6 +459,50 @@ export class PaymentService {
         formatErrorMessage(PaymentConstants.ERRORS.AMOUNT_TOO_HIGH, {
           max: PaymentConstants.LIMITS.MAX_PAYMENT_AMOUNT,
         }),
+      );
+    }
+  }
+
+  /**
+   * Release collateral with retry logic (exponential backoff)
+   * Prevents orphaned locks due to temporary failures
+   */
+  private async releaseCollateralWithRetry(
+    bankId: string,
+    transactionId: string,
+    context: string,
+    retryCount: number = 0,
+    maxRetries: number = 3,
+  ): Promise<void> {
+    try {
+      await this.collateral.releaseCollateral(bankId, transactionId);
+    } catch (error) {
+      if (retryCount >= maxRetries) {
+        // Max retries reached - log error for orphan cleanup
+        this.logger.error(
+          `Failed to release collateral for ${context} payment ${transactionId} ` +
+          `after ${retryCount} retries: ${error.message}`
+        );
+        throw error;
+      }
+
+      // Calculate exponential backoff delay (1s, 2s, 4s)
+      const delay = Math.pow(2, retryCount) * 1000;
+      this.logger.warn(
+        `Collateral release failed for ${context} payment ${transactionId}, ` +
+        `retrying in ${delay}ms (attempt ${retryCount + 1}/${maxRetries}): ${error.message}`
+      );
+
+      // Wait before retrying
+      await new Promise((resolve) => setTimeout(resolve, delay));
+
+      // Retry
+      return this.releaseCollateralWithRetry(
+        bankId,
+        transactionId,
+        context,
+        retryCount + 1,
+        maxRetries,
       );
     }
   }

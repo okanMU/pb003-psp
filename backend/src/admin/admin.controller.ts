@@ -1,12 +1,14 @@
 import { Controller, Get, Post, Body, Param, Patch } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { PaymentService } from '../payment/payment.service';
+import { OrphanDetectionService } from '../payment/orphan-detection.service';
 
 @Controller('admin')
 export class AdminController {
   constructor(
     private adminService: AdminService,
     private paymentService: PaymentService,
+    private orphanDetection: OrphanDetectionService,
   ) {}
 
   /**
@@ -63,5 +65,23 @@ export class AdminController {
   @Get('search/ref-code/:code')
   async searchByRefCode(@Param('code') code: string) {
     return this.adminService.searchByRefCode(code);
+  }
+
+  /**
+   * GET /api/v1/admin/system/orphan-stats
+   * Get statistics about orphaned resources
+   */
+  @Get('system/orphan-stats')
+  async getOrphanStats() {
+    return this.orphanDetection.getOrphanStats();
+  }
+
+  /**
+   * POST /api/v1/admin/system/cleanup-orphans
+   * Manually trigger orphan cleanup (also runs automatically every hour)
+   */
+  @Post('system/cleanup-orphans')
+  async cleanupOrphans() {
+    return this.orphanDetection.detectAndCleanup();
   }
 }

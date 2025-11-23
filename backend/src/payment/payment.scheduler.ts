@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PaymentService } from './payment.service';
 import { CollateralService } from '../collateral/collateral.service';
+import { OrphanDetectionService } from './orphan-detection.service';
 import { LoggerService } from '../common/logger/logger.service';
 
 /**
@@ -13,6 +14,7 @@ export class PaymentScheduler {
   constructor(
     private paymentService: PaymentService,
     private collateralService: CollateralService,
+    private orphanDetection: OrphanDetectionService,
     private logger: LoggerService,
   ) {
     this.logger.setContext('PaymentScheduler');
@@ -60,14 +62,54 @@ export class PaymentScheduler {
   }
 
   /**
+   * Detect and cleanup orphaned resources
+   * Runs every hour
+   *
+   * Handles:
+   * - Collateral locks for completed/expired transactions
+   * - Very old PENDING payments that should have expired
+   * - Inconsistent states between transactions and locks
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async handleOrphanCleanup() {
+    try {
+      this.logger.log('Running orphan detection and cleanup...');
+
+      const result = await this.orphanDetection.detectAndCleanup();
+
+      if (result.orphanedLocks > 0 || result.oldPendingPayments > 0 || result.inconsistentStates > 0) {
+        this.logger.warn(
+          `✅ Orphan cleanup: ${result.orphanedLocks} locks, ` +
+          `${result.oldPendingPayments} old payments, ` +
+          `${result.inconsistentStates} inconsistencies fixed`
+        );
+      } else {
+        this.logger.log('✅ No orphans detected - system healthy');
+      }
+    } catch (error) {
+      this.logger.error(`Orphan cleanup failed: ${error.message}`, error.stack);
+    }
+  }
+
+  /**
    * Log system health metrics
    * Runs every 10 minutes
    */
   @Cron(CronExpression.EVERY_10_MINUTES)
   async logHealthMetrics() {
     try {
-      // This is optional - could log stats about active locks, pending payments, etc.
-      this.logger.log('System health check completed');
+      // Get orphan statistics for monitoring
+      const orphanStats = await this.orphanDetection.getOrphanStats();
+
+      if (orphanStats.orphanedLocks > 0 || orphanStats.oldPendingPayments > 0 || orphanStats.pendingWithoutLocks > 0) {
+        this.logger.warn(
+          `⚠️ Orphan stats: ${orphanStats.orphanedLocks} orphaned locks, ` +
+          `${orphanStats.oldPendingPayments} old pending payments, ` +
+          `${orphanStats.pendingWithoutLocks} pending without locks`
+        );
+      } else {
+        this.logger.log('✅ System health check completed - no orphans detected');
+      }
     } catch (error) {
       this.logger.error(`Health check failed: ${error.message}`, error.stack);
     }

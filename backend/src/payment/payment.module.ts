@@ -6,6 +6,7 @@ import { RefCodeService } from './ref-code.service';
 import { CommissionService } from './commission.service';
 import { PaymentProcessor } from './payment.processor';
 import { PaymentScheduler } from './payment.scheduler';
+import { OrphanDetectionService } from './orphan-detection.service';
 import { CollateralModule } from '../collateral/collateral.module';
 
 @Module({
@@ -22,7 +23,8 @@ import { CollateralModule } from '../collateral/collateral.module';
     CommissionService,
     PaymentProcessor,
     PaymentScheduler,
+    OrphanDetectionService,
   ],
-  exports: [PaymentService],
+  exports: [PaymentService, OrphanDetectionService],
 })
 export class PaymentModule {}
