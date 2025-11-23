@@ -20,6 +20,7 @@ import { AdminModule } from './admin/admin.module';
 import { WebhookModule } from './webhook/webhook.module';
 import { WebsocketModule } from './websocket/websocket.module';
 import { BankModule } from './bank/bank.module';
+import { BankOwnerModule } from './bank-owner/bank-owner.module';
 import { PlatformModule } from './platform/platform.module';
 import { HealthModule } from './health/health.module';
 import { CollateralModule } from './collateral/collateral.module';
@@ -68,6 +69,7 @@ import { RolesGuard } from './auth/guards/roles.guard';
     WebhookModule,
     WebsocketModule,
     BankModule,
+    BankOwnerModule,
     PlatformModule,
     HealthModule,
     CollateralModule,
