@@ -4,6 +4,7 @@
   "description": "PSP Backend API with WebSocket",
   "scripts": {
     "dev": "nest start --watch",
+    "start:dev": "nest start --watch",
     "build": "nest build",
     "start": "node dist/main",
     "start:prod": "node dist/main",
@@ -15,6 +16,9 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "prisma:seed": "ts-node prisma/seed.ts"
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.0",
