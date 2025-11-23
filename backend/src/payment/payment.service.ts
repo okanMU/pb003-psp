@@ -129,6 +129,18 @@ export class PaymentService {
         customer_name: dto.customer_name,
         customer_ip: customerIp,
         platform_order_id: dto.platform_order_id,
+        // Fraud Detection fields
+        fraud_score: fraudAnalysis.riskScore,
+        risk_level: fraudAnalysis.riskLevel,
+        fraud_rules: {
+          requires_manual_review: fraudAnalysis.requiresManualReview,
+          triggered_rules: fraudAnalysis.triggeredRules.map((r) => ({
+            type: r.type,
+            message: r.message,
+            severity: r.severity,
+          })),
+          analyzed_at: new Date().toISOString(),
+        },
         metadata: {
           ...(dto.metadata || {}),
           fraud_analysis: {

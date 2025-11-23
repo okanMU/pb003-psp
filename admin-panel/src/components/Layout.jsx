@@ -1,6 +1,17 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, CheckSquare, Bell, Wifi, WifiOff } from 'lucide-react';
+import {
+  LayoutDashboard,
+  CheckSquare,
+  Bell,
+  Wifi,
+  WifiOff,
+  Upload,
+  BarChart3,
+  Zap,
+  Building2,
+} from 'lucide-react';
 import { useWebSocket } from '../context/WebSocketContext';
+import LanguageSwitcher from './LanguageSwitcher';
 
 export default function Layout() {
   const location = useLocation();
@@ -9,6 +20,10 @@ export default function Layout() {
   const navItems = [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/manual-check', label: 'Manuel Kontrol', icon: CheckSquare },
+    { path: '/statement-import', label: 'Ekstre İçe Aktar', icon: Upload },
+    { path: '/analytics', label: 'Analizler', icon: BarChart3 },
+    { path: '/automation', label: 'Otomasyon', icon: Zap },
+    { path: '/platform', label: 'Platform', icon: Building2 },
   ];
 
   const unreadCount = notifications.filter((n) => !n.read).length;
@@ -45,6 +60,9 @@ export default function Layout() {
                   </>
                 )}
               </div>
+
+              {/* Language Switcher */}
+              <LanguageSwitcher />
 
               {/* Notifications */}
               <button className="relative p-2 hover:bg-gray-100 rounded-lg">
