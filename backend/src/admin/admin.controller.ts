@@ -3,6 +3,7 @@ import { AdminService } from './admin.service';
 import { PaymentService } from '../payment/payment.service';
 import { OrphanDetectionService } from '../payment/orphan-detection.service';
 import { WebhookService } from '../webhook/webhook.service';
+import { MetricsService } from '../common/monitoring/metrics.service';
 
 @Controller('admin')
 export class AdminController {
@@ -11,6 +12,7 @@ export class AdminController {
     private paymentService: PaymentService,
     private orphanDetection: OrphanDetectionService,
     private webhookService: WebhookService,
+    private metricsService: MetricsService,
   ) {}
 
   /**
@@ -133,5 +135,50 @@ export class AdminController {
   async retryAllPendingWebhooks() {
     const count = await this.webhookService.retryPendingWebhooks();
     return { success: true, retriedCount: count };
+  }
+
+  /**
+   * GET /api/v1/admin/metrics/requests?date=YYYY-MM-DD
+   * Get API request statistics
+   */
+  @Get('metrics/requests')
+  async getRequestMetrics(@Query('date') date?: string) {
+    return this.metricsService.getRequestStats(date);
+  }
+
+  /**
+   * GET /api/v1/admin/metrics/errors?date=YYYY-MM-DD
+   * Get error statistics
+   */
+  @Get('metrics/errors')
+  async getErrorMetrics(@Query('date') date?: string) {
+    return this.metricsService.getErrorStats(date);
+  }
+
+  /**
+   * GET /api/v1/admin/metrics/payments?date=YYYY-MM-DD
+   * Get payment operation statistics
+   */
+  @Get('metrics/payments')
+  async getPaymentMetrics(@Query('date') date?: string) {
+    return this.metricsService.getPaymentStats(date);
+  }
+
+  /**
+   * GET /api/v1/admin/metrics/response-times?date=YYYY-MM-DD
+   * Get response time percentiles
+   */
+  @Get('metrics/response-times')
+  async getResponseTimeMetrics(@Query('date') date?: string) {
+    return this.metricsService.getResponseTimePercentiles(date);
+  }
+
+  /**
+   * GET /api/v1/admin/metrics/system-health
+   * Get real-time system health
+   */
+  @Get('metrics/system-health')
+  async getSystemHealth() {
+    return this.metricsService.getSystemHealth();
   }
 }

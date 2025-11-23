@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { BullModule } from '@nestjs/bull';
@@ -8,6 +8,8 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
 import { LoggerModule } from './common/logger/logger.module';
+import { MonitoringModule } from './common/monitoring/monitoring.module';
+import { MetricsMiddleware } from './common/monitoring/metrics.middleware';
 
 // Feature Modules
 import { AuthModule } from './auth/auth.module';
@@ -50,6 +52,7 @@ import { CollateralModule } from './collateral/collateral.module';
     PrismaModule,
     RedisModule,
     LoggerModule,
+    MonitoringModule,
 
     // Features
     AuthModule,
@@ -63,4 +66,8 @@ import { CollateralModule } from './collateral/collateral.module';
     CollateralModule,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(MetricsMiddleware).forRoutes('*');
+  }
+}
