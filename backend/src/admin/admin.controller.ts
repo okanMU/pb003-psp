@@ -4,7 +4,7 @@ import { PaymentService } from '../payment/payment.service';
 import { OrphanDetectionService } from '../payment/orphan-detection.service';
 import { WebhookService } from '../webhook/webhook.service';
 import { MetricsService } from '../common/monitoring/metrics.service';
-import { FraudDetectionService } from '../security/fraud-detection.service';
+import { FraudDetectionServiceRefactored } from '../security/fraud-detection-refactored.service';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserRole } from '@prisma/client';
@@ -21,7 +21,7 @@ export class AdminController {
     private orphanDetection: OrphanDetectionService,
     private webhookService: WebhookService,
     private metricsService: MetricsService,
-    private fraudDetection: FraudDetectionService,
+    private fraudDetection: FraudDetectionServiceRefactored,
   ) {}
 
   /**

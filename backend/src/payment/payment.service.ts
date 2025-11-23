@@ -6,7 +6,7 @@ import { CommissionService } from './commission.service';
 import { CollateralService } from '../collateral/collateral.service';
 import { BankSelectionService } from '../collateral/bank-selection.service';
 import { LoggerService } from '../common/logger/logger.service';
-import { FraudDetectionService } from '../security/fraud-detection.service';
+import { FraudDetectionServiceRefactored } from '../security/fraud-detection-refactored.service';
 import { PaymentCreatorService } from './services/payment-creator.service';
 import { PaymentApprovalService } from './services/payment-approval.service';
 import { PaymentCancellationService } from './services/payment-cancellation.service';
@@ -35,7 +35,7 @@ export class PaymentService {
     private collateral: CollateralService,
     private bankSelection: BankSelectionService,
     private logger: LoggerService,
-    private fraudDetection: FraudDetectionService,
+    private fraudDetection: FraudDetectionServiceRefactored,
     private paymentCreator: PaymentCreatorService,
     private paymentApproval: PaymentApprovalService,
     private paymentCancellation: PaymentCancellationService,
