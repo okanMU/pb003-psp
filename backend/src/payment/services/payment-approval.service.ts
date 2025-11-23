@@ -164,7 +164,7 @@ export class PaymentApprovalService {
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        await this.collateral.releaseCollateral(paymentId, reason);
+        await this.collateral.releaseCollateral(bankId, paymentId);
         return; // Success
       } catch (error) {
         lastError = error;

@@ -170,7 +170,7 @@ export class PaymentCancellationService {
     reason: string,
   ): Promise<void> {
     try {
-      await this.collateral.releaseCollateral(paymentId, reason);
+      await this.collateral.releaseCollateral(bankId, paymentId);
       this.logger.log(`Collateral released for ${reason} payment ${paymentId}`);
     } catch (error) {
       this.logger.error(

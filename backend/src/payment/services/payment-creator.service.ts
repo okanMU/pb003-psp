@@ -53,8 +53,8 @@ export class PaymentCreatorService {
     await this.checkFraudDetection(
       platformId,
       dto.amount,
-      dto.customerEmail,
-      dto.customerPhone,
+      dto.customer_email,
+      dto.customer_phone,
       customerIp,
     );
 
@@ -78,12 +78,12 @@ export class PaymentCreatorService {
         bank_id: bank.id,
         amount: dto.amount,
         currency: dto.currency || 'TRY',
-        customer_email: dto.customerEmail,
-        customer_phone: dto.customerPhone,
-        customer_name: dto.customerName,
+        customer_email: dto.customer_email,
+        customer_phone: dto.customer_phone,
+        customer_name: dto.customer_name,
         customer_ip: customerIp,
         metadata: dto.metadata,
-        platform_order_id: dto.platformOrderId,
+        platform_order_id: dto.platform_order_id,
         platform_commission: commissions.platformCommission,
         psp_commission: commissions.pspCommission,
         net_amount: commissions.netAmount,
@@ -161,7 +161,7 @@ export class PaymentCreatorService {
    * Select bank with available collateral
    */
   private async selectBank(amount: number) {
-    const bank = await this.bankSelection.selectBankForTransaction(amount);
+    const bank = await this.bankSelection.selectBestBank(amount);
 
     if (!bank) {
       throw new Error('No bank available with sufficient collateral');
@@ -186,7 +186,7 @@ export class PaymentCreatorService {
     amount: number,
     expiresAt: Date,
   ): Promise<void> {
-    await this.collateral.lockCollateral(transactionId, bankId, amount, expiresAt);
+    await this.collateral.lockCollateral(bankId, transactionId, amount);
   }
 
   /**

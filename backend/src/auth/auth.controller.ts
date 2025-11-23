@@ -19,9 +19,9 @@ export class AuthController {
     return this.authService.login(loginDto);
   }
 
-  @Public()
   @Post('register')
-  @Roles(UserRole.PSP_ADMIN) // Only PSP admins can register new users (or make this public based on your needs)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.PSP_ADMIN) // Only PSP admins can register new users
   async register(@Body() registerDto: RegisterDto) {
     return this.authService.register(registerDto);
   }
