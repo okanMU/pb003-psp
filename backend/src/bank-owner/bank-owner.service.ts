@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoggerService } from '../common/logger/logger.service';
+import { RedisService } from '../redis/redis.service';
+import { CollateralService } from '../collateral/collateral.service';
 
 /**
  * Bank Owner Service
@@ -12,6 +14,8 @@ export class BankOwnerService {
   constructor(
     private prisma: PrismaService,
     private logger: LoggerService,
+    private redis: RedisService,
+    private collateral: CollateralService,
   ) {
     this.logger.setContext('BankOwnerService');
   }
@@ -175,6 +179,28 @@ export class BankOwnerService {
       `Payment ${transactionId} approved by bank owner ${ownerId}`,
     );
 
+    // Notify customer via WebSocket
+    await this.redis.publish('payment:approved', {
+      id: transactionId,
+      status: 'APPROVED',
+    });
+
+    // Notify bank owner to update dashboard
+    await this.redis.publish('payment:bank-owner-approved', {
+      transactionId,
+      ownerId,
+    });
+
+    // Release collateral
+    try {
+      await this.collateral.releaseCollateral(transaction.bank_id, transactionId);
+      this.logger.log(`Collateral released for transaction ${transactionId}`);
+    } catch (error) {
+      this.logger.error(
+        `Failed to release collateral for transaction ${transactionId}: ${error.message}`,
+      );
+    }
+
     // Return updated transaction
     return this.prisma.transaction.findUnique({
       where: { id: transactionId },
@@ -229,6 +255,28 @@ export class BankOwnerService {
     this.logger.log(
       `Payment ${transactionId} rejected by bank owner ${ownerId}`,
     );
+
+    // Notify customer via WebSocket
+    await this.redis.publish('payment:rejected', {
+      id: transactionId,
+      reason: reason || 'Bank owner rejected: Money not received',
+    });
+
+    // Notify bank owner to update dashboard
+    await this.redis.publish('payment:bank-owner-rejected', {
+      transactionId,
+      ownerId,
+    });
+
+    // Release collateral
+    try {
+      await this.collateral.releaseCollateral(transaction.bank_id, transactionId);
+      this.logger.log(`Collateral released for rejected transaction ${transactionId}`);
+    } catch (error) {
+      this.logger.error(
+        `Failed to release collateral for transaction ${transactionId}: ${error.message}`,
+      );
+    }
 
     return this.prisma.transaction.findUnique({
       where: { id: transactionId },

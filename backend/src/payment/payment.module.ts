@@ -10,6 +10,7 @@ import { OrphanDetectionService } from './orphan-detection.service';
 import { PaymentCreatorService } from './services/payment-creator.service';
 import { PaymentApprovalService } from './services/payment-approval.service';
 import { PaymentCancellationService } from './services/payment-cancellation.service';
+import { PaymentConfirmationService } from './services/payment-confirmation.service';
 import { CollateralModule } from '../collateral/collateral.module';
 import { LoggerModule } from '../common/logger/logger.module';
 import { SecurityModule } from '../security/security.module';
@@ -34,6 +35,7 @@ import { SecurityModule } from '../security/security.module';
     PaymentCreatorService,
     PaymentApprovalService,
     PaymentCancellationService,
+    PaymentConfirmationService,
   ],
   exports: [PaymentService, OrphanDetectionService],
 })
