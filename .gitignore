@@ -33,8 +33,9 @@ Thumbs.db
 *.sqlite
 
 # Prisma
-backend/prisma/migrations/
-!backend/prisma/migrations/.gitkeep
+# Note: migrations should be tracked in version control
+# backend/prisma/migrations/
+# !backend/prisma/migrations/.gitkeep
 
 # Misc
 coverage/
