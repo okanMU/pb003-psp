@@ -7,24 +7,28 @@ services:
     container_name: psp-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: psp_db
+      POSTGRES_DB: psp_development
+      POSTGRES_USER: psp_user
+      POSTGRES_PASSWORD: psp_password_dev_2024
+      PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U psp_user -d psp_development"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - psp-network
 
-  # Redis Cache & Pub/Sub
+  # Redis Cache
   redis:
     image: redis:7-alpine
     container_name: psp-redis
     restart: unless-stopped
+    command: redis-server --appendonly yes
     ports:
       - "6379:6379"
     volumes:
@@ -34,6 +38,8 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+    networks:
+      - psp-network
 
   # Backend API
   backend:
@@ -48,50 +54,50 @@ services:
       redis:
         condition: service_healthy
     environment:
-      NODE_ENV: production
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/psp_db?schema=public
+      NODE_ENV: development
+      PORT: 3000
+
+      # Database
+      DATABASE_URL: postgresql://psp_user:psp_password_dev_2024@postgres:5432/psp_development?schema=public
+
+      # Redis
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
-      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-whsec_your_webhook_secret_key}
-      PORT: 3000
+
+      # JWT
+      JWT_SECRET: super-secret-jwt-key-change-in-production-2024
+      JWT_EXPIRES_IN: 7d
+
+      # API
+      API_PREFIX: api/v1
+
+      # CORS
+      CORS_ORIGIN: "*"
+
+      # Prisma
+      PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: 1
     ports:
       - "3000:3000"
     volumes:
       - ./backend:/app
       - /app/node_modules
-    command: npm run start:prod
-
-  # Admin Panel
-  admin-panel:
-    build:
-      context: ./admin-panel
-      dockerfile: Dockerfile
-    container_name: psp-admin
-    restart: unless-stopped
-    depends_on:
-      - backend
-    ports:
-      - "5173:80"
-    environment:
-      VITE_API_URL: http://localhost:3000
-      VITE_WS_URL: ws://localhost:3000
-
-  # Nginx Reverse Proxy (Optional)
-  nginx:
-    image: nginx:alpine
-    container_name: psp-nginx
-    restart: unless-stopped
-    depends_on:
-      - backend
-      - admin-panel
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-    profiles:
-      - production
+      - /app/dist
+    command: sh -c "npx prisma generate && npx prisma migrate deploy && npm run start:dev"
+    networks:
+      - psp-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
 volumes:
   postgres_data:
+    driver: local
   redis_data:
+    driver: local
+
+networks:
+  psp-network:
+    driver: bridge

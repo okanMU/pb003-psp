@@ -7,7 +7,13 @@ import { CommissionService } from './commission.service';
 import { PaymentProcessor } from './payment.processor';
 import { PaymentScheduler } from './payment.scheduler';
 import { OrphanDetectionService } from './orphan-detection.service';
+import { PaymentCreatorService } from './services/payment-creator.service';
+import { PaymentApprovalService } from './services/payment-approval.service';
+import { PaymentCancellationService } from './services/payment-cancellation.service';
+import { PaymentConfirmationService } from './services/payment-confirmation.service';
 import { CollateralModule } from '../collateral/collateral.module';
+import { LoggerModule } from '../common/logger/logger.module';
+import { SecurityModule } from '../security/security.module';
 
 @Module({
   imports: [
@@ -15,6 +21,8 @@ import { CollateralModule } from '../collateral/collateral.module';
       name: 'payment',
     }),
     CollateralModule,
+    LoggerModule,
+    SecurityModule,
   ],
   controllers: [PaymentController],
   providers: [
@@ -24,6 +32,10 @@ import { CollateralModule } from '../collateral/collateral.module';
     PaymentProcessor,
     PaymentScheduler,
     OrphanDetectionService,
+    PaymentCreatorService,
+    PaymentApprovalService,
+    PaymentCancellationService,
+    PaymentConfirmationService,
   ],
   exports: [PaymentService, OrphanDetectionService],
 })

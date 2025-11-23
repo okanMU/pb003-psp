@@ -7,7 +7,11 @@ import {
 } from '@nestjs/terminus';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { Public } from '../auth/decorators/public.decorator';
+import { HealthMetricsService } from '../common/monitoring/health-metrics.service';
+import { AlertService } from '../common/monitoring/alert.service';
 
+@Public() // Health endpoints should be public
 @Controller('health')
 export class HealthController {
   constructor(
@@ -15,6 +19,8 @@ export class HealthController {
     private memory: MemoryHealthIndicator,
     private prisma: PrismaService,
     private redis: RedisService,
+    private healthMetrics: HealthMetricsService,
+    private alertService: AlertService,
   ) {}
 
   @Get()
@@ -91,5 +97,34 @@ export class HealthController {
         timestamp: new Date().toISOString(),
       };
     }
+  }
+
+  @Get('metrics')
+  async metrics() {
+    const metrics = this.healthMetrics.getLatestMetrics();
+
+    if (!metrics) {
+      return {
+        message: 'No metrics available yet. Metrics are collected every 5 minutes.',
+        nextCollection: 'within 5 minutes',
+      };
+    }
+
+    return {
+      ...metrics,
+      status: 'ok',
+    };
+  }
+
+  @Get('alerts')
+  async alerts() {
+    return {
+      recent: this.alertService.getHistory(50),
+      bySeverity: {
+        critical: this.alertService.getAlertsBySeverity('CRITICAL', 10),
+        error: this.alertService.getAlertsBySeverity('ERROR', 10),
+        warning: this.alertService.getAlertsBySeverity('WARNING', 10),
+      },
+    };
   }
 }

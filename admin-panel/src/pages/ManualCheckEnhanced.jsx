@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   RefreshCw,
   Upload,
@@ -20,6 +20,9 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import 'dayjs/locale/tr';
 import FraudScoreCard, { calculateFraudScore, SmartApprovalActions } from '../components/FraudScoreCard';
+import { usePaymentMutations } from '../hooks/usePaymentMutations';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { usePaymentFilters } from '../hooks/usePaymentFilters';
 
 dayjs.extend(relativeTime);
 dayjs.locale('tr');
@@ -35,11 +38,6 @@ export default function ManualCheckEnhanced() {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [searchCode, setSearchCode] = useState('');
   const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
-  const [filters, setFilters] = useState({
-    minAmount: '',
-    maxAmount: '',
-    riskLevel: 'all',
-  });
   const transactionRefs = useRef([]);
 
   // Bekleyen ödemeleri çek
@@ -49,170 +47,57 @@ export default function ManualCheckEnhanced() {
     refetchInterval: autoRefresh ? 30000 : false,
   });
 
+  // Use custom hooks for filters
+  const { filters, setFilters, filterTransactions } = usePaymentFilters();
+
   // Get filtered transactions
-  const getFilteredTransactions = useCallback(() => {
-    if (!selectedBank?.transactions) return [];
+  const filteredTransactions = selectedBank?.transactions
+    ? filterTransactions(selectedBank.transactions)
+    : [];
 
-    return selectedBank.transactions.filter((tx) => {
-      // Amount filter
-      if (filters.minAmount && tx.amount < parseFloat(filters.minAmount))
-        return false;
-      if (filters.maxAmount && tx.amount > parseFloat(filters.maxAmount))
-        return false;
+  // Use custom hooks for mutations with navigation
+  const handleSuccess = useCallback(() => {
+    setSelectedTransactions([]);
+    // Move to next transaction
+    if (currentIndex < filteredTransactions.length - 1) {
+      setCurrentIndex(currentIndex + 1);
+    }
+  }, [currentIndex, filteredTransactions.length]);
 
-      // Risk filter (mock - would come from backend)
-      if (filters.riskLevel !== 'all') {
-        const riskScore = Math.random() * 100; // Mock
-        if (filters.riskLevel === 'low' && riskScore > 25) return false;
-        if (
-          filters.riskLevel === 'medium' &&
-          (riskScore <= 25 || riskScore > 50)
-        )
-          return false;
-        if (filters.riskLevel === 'high' && riskScore <= 50) return false;
-      }
+  const {
+    approve,
+    reject,
+    batchApprove,
+    isApproving,
+    isRejecting,
+    isBatchApproving,
+  } = usePaymentMutations({ onSuccess: handleSuccess });
 
-      return true;
-    });
-  }, [selectedBank, filters]);
-
-  const filteredTransactions = getFilteredTransactions();
-
-  // Onaylama mutation
-  const approveMutation = useMutation({
-    mutationFn: (id) => adminApi.approvePayment(id, 'admin-user-id'),
-    onSuccess: () => {
-      toast.success('✅ Ödeme onaylandı');
-      queryClient.invalidateQueries(['pending-payments']);
-      setSelectedTransactions([]);
-      // Move to next transaction
-      if (currentIndex < filteredTransactions.length - 1) {
-        setCurrentIndex(currentIndex + 1);
-      }
-    },
-    onError: () => {
-      toast.error('❌ Onaylama başarısız');
-    },
-  });
-
-  // Reddetme mutation
-  const rejectMutation = useMutation({
-    mutationFn: ({ id, reason }) =>
-      adminApi.rejectPayment(id, 'admin-user-id', reason),
-    onSuccess: () => {
-      toast.success('❌ Ödeme reddedildi');
-      queryClient.invalidateQueries(['pending-payments']);
-      setSelectedTransactions([]);
-      // Move to next transaction
-      if (currentIndex < filteredTransactions.length - 1) {
-        setCurrentIndex(currentIndex + 1);
-      }
-    },
-    onError: () => {
-      toast.error('❌ Reddetme başarısız');
-    },
-  });
-
-  // Toplu onaylama
-  const batchApproveMutation = useMutation({
-    mutationFn: (approvals) => adminApi.batchApprove(approvals),
-    onSuccess: () => {
-      toast.success('✅ Toplu onaylama tamamlandı');
-      queryClient.invalidateQueries(['pending-payments']);
-      setSelectedTransactions([]);
-    },
-    onError: () => {
-      toast.error('❌ Toplu onaylama başarısız');
-    },
-  });
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      // Ignore if typing in input
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-        return;
-      }
-
-      const currentTx = filteredTransactions[currentIndex];
-
-      switch (e.key.toLowerCase()) {
-        case 'enter':
-          // Approve current transaction
-          if (currentTx && !approveMutation.isPending) {
-            e.preventDefault();
-            approveMutation.mutate(currentTx.id);
-          }
-          break;
-
-        case 'r':
-          // Reject current transaction
-          if (currentTx && !rejectMutation.isPending) {
-            e.preventDefault();
-            rejectMutation.mutate({
-              id: currentTx.id,
-              reason: 'Manuel red (klavye kısayolu)',
-            });
-          }
-          break;
-
-        case 'arrowdown':
-        case 'j':
-          // Next transaction
-          e.preventDefault();
-          if (currentIndex < filteredTransactions.length - 1) {
-            setCurrentIndex(currentIndex + 1);
-          }
-          break;
-
-        case 'arrowup':
-        case 'k':
-          // Previous transaction
-          e.preventDefault();
-          if (currentIndex > 0) {
-            setCurrentIndex(currentIndex - 1);
-          }
-          break;
-
-        case ' ':
-          // Toggle selection
-          e.preventDefault();
-          if (currentTx) {
-            handleToggleTransaction(currentTx);
-          }
-          break;
-
-        case 'a':
-          // Approve all selected
-          if (e.ctrlKey || e.metaKey) {
-            e.preventDefault();
-            if (selectedTransactions.length > 0) {
-              handleBatchApprove();
-            }
-          }
-          break;
-
-        case '?':
-          // Show keyboard help
-          e.preventDefault();
-          setShowKeyboardHelp(!showKeyboardHelp);
-          break;
-
-        default:
-          break;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [
+  // Use custom keyboard shortcuts hook
+  useKeyboardShortcuts({
+    transactions: filteredTransactions,
     currentIndex,
-    filteredTransactions,
-    selectedTransactions,
-    approveMutation,
-    rejectMutation,
-    showKeyboardHelp,
-  ]);
+    setCurrentIndex,
+    onApprove: (tx) => approve(tx.id),
+    onReject: (tx) => reject({ id: tx.id, reason: 'Manuel red (klavye kısayolu)' }),
+    onToggleSelection: (tx) => {
+      setSelectedTransactions((prev) => {
+        const isSelected = prev.some((t) => t.id === tx.id);
+        return isSelected ? prev.filter((t) => t.id !== tx.id) : [...prev, tx];
+      });
+    },
+    onBatchApprove: () => {
+      if (selectedTransactions.length > 0) {
+        const approvals = selectedTransactions.map((tx) => ({
+          id: tx.id,
+          bankId: tx.bank_id,
+        }));
+        batchApprove(approvals);
+      }
+    },
+    onShowHelp: () => setShowKeyboardHelp((prev) => !prev),
+    isProcessing: isApproving || isRejecting,
+  });
 
   // Scroll to current transaction
   useEffect(() => {
@@ -223,26 +108,6 @@ export default function ManualCheckEnhanced() {
       });
     }
   }, [currentIndex]);
-
-  const handleBatchApprove = () => {
-    const approvals = selectedTransactions.map((tx) => ({
-      refCode: tx.refCode,
-      adminId: 'admin-user-id',
-    }));
-
-    batchApproveMutation.mutate(approvals);
-  };
-
-  const handleToggleTransaction = (tx) => {
-    const exists = selectedTransactions.find((t) => t.id === tx.id);
-    if (exists) {
-      setSelectedTransactions(
-        selectedTransactions.filter((t) => t.id !== tx.id)
-      );
-    } else {
-      setSelectedTransactions([...selectedTransactions, tx]);
-    }
-  };
 
   // Get risk level (mock)
   const getRiskLevel = (tx) => {
@@ -411,8 +276,8 @@ export default function ManualCheckEnhanced() {
       {selectedBank && filteredTransactions.length > 0 && (
         <SmartApprovalActions
           transactions={filteredTransactions}
-          onApprove={(id) => approveMutation.mutate(id)}
-          onReject={(id, reason) => rejectMutation.mutate({ id, reason })}
+          onApprove={(id) => approve(id)}
+          onReject={(id, reason) => reject({ id, reason })}
         />
       )}
 
@@ -474,8 +339,15 @@ export default function ManualCheckEnhanced() {
               <div className="flex gap-2">
                 {selectedTransactions.length > 0 && (
                   <button
-                    onClick={handleBatchApprove}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition flex items-center gap-2"
+                    onClick={() => {
+                      const approvals = selectedTransactions.map((tx) => ({
+                        id: tx.id,
+                        bankId: tx.bank_id,
+                      }));
+                      batchApprove(approvals);
+                    }}
+                    disabled={isBatchApproving}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition flex items-center gap-2 disabled:opacity-50"
                   >
                     <CheckCircle className="w-4 h-4" />
                     Seçilenleri Onayla ({selectedTransactions.length})
@@ -508,7 +380,12 @@ export default function ManualCheckEnhanced() {
                       <input
                         type="checkbox"
                         checked={!!isSelected}
-                        onChange={() => handleToggleTransaction(tx)}
+                        onChange={() => {
+                          setSelectedTransactions((prev) => {
+                            const exists = prev.some((t) => t.id === tx.id);
+                            return exists ? prev.filter((t) => t.id !== tx.id) : [...prev, tx];
+                          });
+                        }}
                         className="mt-1 w-5 h-5 cursor-pointer"
                       />
 
@@ -546,8 +423,8 @@ export default function ManualCheckEnhanced() {
                         {/* Actions */}
                         <div className="flex flex-wrap gap-2">
                           <button
-                            onClick={() => approveMutation.mutate(tx.id)}
-                            disabled={approveMutation.isPending}
+                            onClick={() => approve(tx.id)}
+                            disabled={isApproving}
                             className="flex-1 sm:flex-none px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
                           >
                             <CheckCircle className="w-4 h-4" />
@@ -555,12 +432,12 @@ export default function ManualCheckEnhanced() {
                           </button>
                           <button
                             onClick={() =>
-                              rejectMutation.mutate({
+                              reject({
                                 id: tx.id,
                                 reason: 'Manuel red',
                               })
                             }
-                            disabled={rejectMutation.isPending}
+                            disabled={isRejecting}
                             className="flex-1 sm:flex-none px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
                           >
                             <XCircle className="w-4 h-4" />

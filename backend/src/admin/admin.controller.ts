@@ -4,8 +4,15 @@ import { PaymentService } from '../payment/payment.service';
 import { OrphanDetectionService } from '../payment/orphan-detection.service';
 import { WebhookService } from '../webhook/webhook.service';
 import { MetricsService } from '../common/monitoring/metrics.service';
-import { FraudDetectionService } from '../security/fraud-detection.service';
+import { FraudDetectionServiceRefactored } from '../security/fraud-detection-refactored.service';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { UserRole } from '@prisma/client';
+import { RejectPaymentDto } from './dto/reject-payment.dto';
+import { BatchApproveDto } from './dto/batch-approve.dto';
 
+// Admin endpoints require authentication - PSP_ADMIN or OPERATOR roles
+@Roles(UserRole.PSP_ADMIN, UserRole.OPERATOR, UserRole.BANK_OWNER)
 @Controller('admin')
 export class AdminController {
   constructor(
@@ -14,7 +21,7 @@ export class AdminController {
     private orphanDetection: OrphanDetectionService,
     private webhookService: WebhookService,
     private metricsService: MetricsService,
-    private fraudDetection: FraudDetectionService,
+    private fraudDetection: FraudDetectionServiceRefactored,
   ) {}
 
   /**
@@ -39,9 +46,9 @@ export class AdminController {
   @Post('payments/:id/approve')
   async approvePayment(
     @Param('id') id: string,
-    @Body() body: { adminId: string },
+    @CurrentUser('id') adminId: string,
   ) {
-    return this.paymentService.approvePayment(id, body.adminId);
+    return this.paymentService.approvePayment(id, adminId);
   }
 
   /**
@@ -50,9 +57,10 @@ export class AdminController {
   @Post('payments/:id/reject')
   async rejectPayment(
     @Param('id') id: string,
-    @Body() body: { adminId: string; reason?: string },
+    @Body() dto: RejectPaymentDto,
+    @CurrentUser('id') adminId: string,
   ) {
-    return this.paymentService.rejectPayment(id, body.adminId, body.reason);
+    return this.paymentService.rejectPayment(id, adminId, dto.reason);
   }
 
   /**
@@ -60,9 +68,15 @@ export class AdminController {
    */
   @Post('payments/batch-approve')
   async batchApprove(
-    @Body() body: { approvals: Array<{ refCode: string; adminId: string }> },
+    @Body() dto: BatchApproveDto,
+    @CurrentUser('id') adminId: string,
   ) {
-    return this.adminService.batchApprove(body.approvals);
+    // Add adminId to each approval
+    const approvalsWithAdmin = dto.approvals.map(approval => ({
+      ...approval,
+      adminId,
+    }));
+    return this.adminService.batchApprove(approvalsWithAdmin);
   }
 
   /**
