@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { LoggerService } from '../common/logger/logger.service';
 import { Decimal } from '@prisma/client/runtime/library';
+import { PaymentConstants, formatErrorMessage } from '../common/constants/payment.constants';
 
 @Injectable()
 export class CollateralService {
@@ -15,7 +16,7 @@ export class CollateralService {
   }
 
   /**
-   * Teminatı kilitle (5 dakika)
+   * Teminatı kilitle (configured timeout dakika)
    * Race condition önleme ile atomik işlem
    */
   async lockCollateral(
@@ -33,15 +34,13 @@ export class CollateralService {
       lockKey,
       transactionId,
       'EX',
-      10, // 10 saniye timeout
+      PaymentConstants.TIME.REDIS_LOCK_TIMEOUT_SECONDS,
       'NX', // Only if not exists
     );
 
     if (!lockAcquired) {
       this.logger.warn(`Failed to acquire lock for bank ${bankId}`);
-      throw new BadRequestException(
-        'Bu hesap şu anda başka bir işlemde kullanılıyor, lütfen bekleyin',
-      );
+      throw new BadRequestException(PaymentConstants.ERRORS.LOCK_IN_USE);
     }
 
     try {
@@ -53,15 +52,15 @@ export class CollateralService {
         });
 
         if (!bank) {
-          throw new BadRequestException('Banka hesabı bulunamadı');
+          throw new BadRequestException(PaymentConstants.ERRORS.NO_ACTIVE_BANK);
         }
 
         if (!bank.is_active) {
-          throw new BadRequestException('Banka hesabı aktif değil');
+          throw new BadRequestException(PaymentConstants.ERRORS.BANK_INACTIVE);
         }
 
         if (bank.is_suspended) {
-          throw new BadRequestException('Banka hesabı askıda');
+          throw new BadRequestException(PaymentConstants.ERRORS.BANK_SUSPENDED);
         }
 
         // 2. Yeterli teminat var mı?
@@ -70,17 +69,23 @@ export class CollateralService {
         );
         if (availableCollateral < amount) {
           throw new BadRequestException(
-            `Yetersiz teminat. Mevcut: ${availableCollateral} TRY, Gerekli: ${amount} TRY`,
+            formatErrorMessage(PaymentConstants.ERRORS.INSUFFICIENT_COLLATERAL, {
+              available: availableCollateral,
+              required: amount,
+            }),
           );
         }
 
-        // 3. Kilit oluştur
+        // 3. Kilit oluştur (configured timeout)
+        const expiresAt = new Date(
+          Date.now() + PaymentConstants.TIME.COLLATERAL_LOCK_MINUTES * 60 * 1000,
+        );
         const lock = await tx.collateralLock.create({
           data: {
             bank_id: bankId,
             transaction_id: transactionId,
             locked_amount: amount,
-            expires_at: new Date(Date.now() + 5 * 60 * 1000), // 5 dakika
+            expires_at: expiresAt,
             status: 'ACTIVE',
           },
         });
@@ -157,7 +162,7 @@ export class CollateralService {
       });
 
       if (!lock) {
-        throw new BadRequestException('Kilit bulunamadı');
+        throw new BadRequestException(PaymentConstants.ERRORS.LOCK_NOT_FOUND);
       }
 
       if (lock.status !== 'ACTIVE') {
@@ -269,7 +274,20 @@ export class CollateralService {
   // Helper methods
 
   private async updateBankCache(bank: any): Promise<void> {
-    await this.redis.set(`bank:${bank.id}`, bank, 3600); // 1 saat
+    // Individual bank cache
+    await this.redis.set(
+      `bank:${bank.id}`,
+      bank,
+      PaymentConstants.TIME.BANK_CACHE_TTL_SECONDS,
+    );
+
+    // CRITICAL: Invalidate active banks cache to prevent stale data
+    // When a bank's collateral changes, the cached list becomes outdated
+    await this.redis.del('banks:active');
+
+    this.logger.log(
+      `Bank cache updated and active banks cache invalidated for bank ${bank.id}`,
+    );
   }
 
   private async notifyCollateralFull(bank: any): Promise<void> {

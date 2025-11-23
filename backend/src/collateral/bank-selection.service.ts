@@ -2,6 +2,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { LoggerService } from '../common/logger/logger.service';
+import { PaymentConstants } from '../common/constants/payment.constants';
 
 @Injectable()
 export class BankSelectionService {
@@ -61,17 +62,19 @@ export class BankSelectionService {
         },
       });
 
-      // Cache'e kaydet (1 dakika) - TÜM aktif bankaları cache'le
+      // Cache'e kaydet (configured TTL) - TÜM aktif bankaları cache'le
       // Böylece farklı amount'lar için kullanılabilir
       if (eligibleBanks.length > 0) {
-        await this.redis.set('banks:active', eligibleBanks, 60);
+        await this.redis.set(
+          'banks:active',
+          eligibleBanks,
+          PaymentConstants.TIME.ACTIVE_BANKS_CACHE_SECONDS,
+        );
       }
     }
 
     if (!eligibleBanks || eligibleBanks.length === 0) {
-      throw new BadRequestException(
-        'Uygun hesap bulunamadı. Lütfen daha sonra tekrar deneyin.',
-      );
+      throw new BadRequestException(PaymentConstants.ERRORS.NO_ACTIVE_BANK);
     }
 
     // 3. Minimum waste ile en uygun hesabı seç

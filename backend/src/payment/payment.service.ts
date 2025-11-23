@@ -8,6 +8,7 @@ import { BankSelectionService } from '../collateral/bank-selection.service';
 import { LoggerService } from '../common/logger/logger.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { PaymentStatus } from '@prisma/client';
+import { PaymentConstants, formatErrorMessage } from '../common/constants/payment.constants';
 import * as dayjs from 'dayjs';
 
 @Injectable()
@@ -34,13 +35,16 @@ export class PaymentService {
   ) {
     this.logger.log(`Creating payment for platform ${platformId}, amount: ${dto.amount}`);
 
+    // Validation: Amount limits
+    this.validatePaymentAmount(dto.amount);
+
     // Platform kontrolü
     const platform = await this.prisma.platform.findUnique({
       where: { id: platformId, is_active: true },
     });
 
     if (!platform) {
-      throw new BadRequestException('Invalid platform');
+      throw new BadRequestException(PaymentConstants.ERRORS.INVALID_PLATFORM);
     }
 
     // Akıllı hesap seçimi (minimum waste strategy + collateral check)
@@ -50,9 +54,9 @@ export class PaymentService {
     // Ref kod üret
     const transactionCode = this.refCode.generate();
 
-    // Expiry hesapla (5 dakika - collateral lock süresi)
+    // Expiry hesapla (configured timeout)
     const expiresAt = dayjs()
-      .add(5, 'minute')
+      .add(PaymentConstants.TIME.PAYMENT_EXPIRY_MINUTES, 'minute')
       .toDate();
 
     // Transaction oluştur
@@ -107,12 +111,12 @@ export class PaymentService {
     await this.redis.set(
       `payment:${transaction.id}`,
       transaction,
-      300, // 5 dakika
+      PaymentConstants.TIME.PAYMENT_CACHE_TTL_SECONDS,
     );
     await this.redis.set(
       `payment:code:${transactionCode}`,
       transaction.id,
-      300,
+      PaymentConstants.TIME.PAYMENT_CACHE_TTL_SECONDS,
     );
 
     // Pub/Sub - Real-time notification
@@ -380,6 +384,27 @@ export class PaymentService {
   }
 
   // Helper Methods
+
+  /**
+   * Validate payment amount against limits
+   */
+  private validatePaymentAmount(amount: number): void {
+    if (amount < PaymentConstants.LIMITS.MIN_PAYMENT_AMOUNT) {
+      throw new BadRequestException(
+        formatErrorMessage(PaymentConstants.ERRORS.AMOUNT_TOO_LOW, {
+          min: PaymentConstants.LIMITS.MIN_PAYMENT_AMOUNT,
+        }),
+      );
+    }
+
+    if (amount > PaymentConstants.LIMITS.MAX_PAYMENT_AMOUNT) {
+      throw new BadRequestException(
+        formatErrorMessage(PaymentConstants.ERRORS.AMOUNT_TOO_HIGH, {
+          max: PaymentConstants.LIMITS.MAX_PAYMENT_AMOUNT,
+        }),
+      );
+    }
+  }
 
   private async createEvent(
     transactionId: string,
