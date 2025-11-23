@@ -26,9 +26,17 @@ export class BankSelectionService {
     this.logger.log(`Selecting best bank for amount: ${amount} TRY`);
 
     // 1. Önce cache'den aktif bankaları dene
-    const cachedBanks = await this.getActiveBanksFromCache();
+    let cachedBanks = await this.getActiveBanksFromCache();
 
-    // 2. Cache yoksa DB'den çek
+    // Cache'den gelen bankaları amount'a göre filtrele
+    if (cachedBanks && cachedBanks.length > 0) {
+      cachedBanks = cachedBanks.filter((bank) => {
+        const available = parseFloat(bank.available_collateral.toString());
+        return bank.is_active && !bank.is_suspended && available >= amount;
+      });
+    }
+
+    // 2. Cache'de uygun banka yoksa DB'den çek
     let eligibleBanks = cachedBanks;
     if (!eligibleBanks || eligibleBanks.length === 0) {
       eligibleBanks = await this.prisma.bank.findMany({
@@ -53,7 +61,8 @@ export class BankSelectionService {
         },
       });
 
-      // Cache'e kaydet (1 dakika)
+      // Cache'e kaydet (1 dakika) - TÜM aktif bankaları cache'le
+      // Böylece farklı amount'lar için kullanılabilir
       if (eligibleBanks.length > 0) {
         await this.redis.set('banks:active', eligibleBanks, 60);
       }
