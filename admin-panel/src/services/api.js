@@ -14,12 +14,12 @@ export const adminApi = {
 
   // Payments
   getPendingPayments: () => api.get('/admin/payments/pending'),
-  approvePayment: (id, adminId) =>
-    api.post(`/admin/payments/${id}/approve`, { adminId }),
-  rejectPayment: (id, adminId, reason) =>
-    api.post(`/admin/payments/${id}/reject`, { adminId, reason }),
+  approvePayment: (id) =>
+    api.post(`/admin/payments/${id}/approve`), // adminId now comes from JWT token
+  rejectPayment: (id, reason) =>
+    api.post(`/admin/payments/${id}/reject`, { reason }), // adminId now comes from JWT token
   batchApprove: (approvals) =>
-    api.post('/admin/payments/batch-approve', { approvals }),
+    api.post('/admin/payments/batch-approve', { approvals }), // adminId added on backend from JWT
 
   // Search
   searchByRefCode: (code) => api.get(`/admin/search/ref-code/${code}`),

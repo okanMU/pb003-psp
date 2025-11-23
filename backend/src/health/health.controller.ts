@@ -7,7 +7,9 @@ import {
 } from '@nestjs/terminus';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { Public } from '../auth/decorators/public.decorator';
 
+@Public() // Health endpoints should be public
 @Controller('health')
 export class HealthController {
   constructor(

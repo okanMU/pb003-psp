@@ -1,4 +1,5 @@
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { BullModule } from '@nestjs/bull';
@@ -22,6 +23,10 @@ import { BankModule } from './bank/bank.module';
 import { PlatformModule } from './platform/platform.module';
 import { HealthModule } from './health/health.module';
 import { CollateralModule } from './collateral/collateral.module';
+
+// Guards
+import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+import { RolesGuard } from './auth/guards/roles.guard';
 
 @Module({
   imports: [
@@ -66,6 +71,18 @@ import { CollateralModule } from './collateral/collateral.module';
     PlatformModule,
     HealthModule,
     CollateralModule,
+  ],
+  providers: [
+    // Global JWT Authentication Guard
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+    // Global Roles Guard
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
+    },
   ],
 })
 export class AppModule implements NestModule {

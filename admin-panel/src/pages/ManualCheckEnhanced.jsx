@@ -80,7 +80,7 @@ export default function ManualCheckEnhanced() {
 
   // Onaylama mutation
   const approveMutation = useMutation({
-    mutationFn: (id) => adminApi.approvePayment(id, 'admin-user-id'),
+    mutationFn: (id) => adminApi.approvePayment(id), // adminId from JWT
     onSuccess: () => {
       toast.success('✅ Ödeme onaylandı');
       queryClient.invalidateQueries(['pending-payments']);
@@ -98,7 +98,7 @@ export default function ManualCheckEnhanced() {
   // Reddetme mutation
   const rejectMutation = useMutation({
     mutationFn: ({ id, reason }) =>
-      adminApi.rejectPayment(id, 'admin-user-id', reason),
+      adminApi.rejectPayment(id, reason), // adminId from JWT
     onSuccess: () => {
       toast.success('❌ Ödeme reddedildi');
       queryClient.invalidateQueries(['pending-payments']);
@@ -227,7 +227,7 @@ export default function ManualCheckEnhanced() {
   const handleBatchApprove = () => {
     const approvals = selectedTransactions.map((tx) => ({
       refCode: tx.refCode,
-      adminId: 'admin-user-id',
+      // adminId is added on backend from JWT token
     }));
 
     batchApproveMutation.mutate(approvals);

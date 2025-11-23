@@ -2,12 +2,14 @@ import { Controller, Post, Get, Body, Param, Req, UseGuards } from '@nestjs/comm
 import { PaymentService } from './payment.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { ApiKeyGuard } from '../auth/api-key.guard';
+import { Public } from '../auth/decorators/public.decorator';
 
 interface RequestWithPlatform extends Request {
   platformId?: string;
   platform?: any;
 }
 
+@Public() // Payment endpoints use API key authentication, not JWT
 @Controller('payments')
 export class PaymentController {
   constructor(private paymentService: PaymentService) {}

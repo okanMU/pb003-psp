@@ -55,9 +55,10 @@ model Platform {
   updated_at      DateTime @updatedAt
 
   // İlişkiler
-  admins          User[]        @relation("PlatformAdmins")
+  admins          User[]          @relation("PlatformAdmins")
   transactions    Transaction[]
   webhooks        WebhookLog[]
+  security_events SecurityEvent[] @relation("SecurityEvents")
 
   @@map("platforms")
 }
@@ -154,11 +155,15 @@ model Transaction {
   lock_expires_at   DateTime?
 
   events            PaymentEvent[]
+  security_events   SecurityEvent[] @relation("SecurityEvents")
 
   @@index([transaction_code])
   @@index([platform_id, status])
   @@index([status, expires_at])
   @@index([created_at])
+  @@index([customer_email])
+  @@index([customer_phone])
+  @@index([customer_ip])
   @@map("transactions")
 }
 
@@ -265,4 +270,41 @@ model Setting {
   updated_at DateTime @updatedAt
 
   @@map("settings")
+}
+
+// Güvenlik Olayları (Security Events)
+model SecurityEvent {
+  id              String   @id @default(cuid())
+
+  // Event Details
+  event_type      String   // IP_BLACKLISTED, IP_WHITELISTED, CUSTOMER_RISK_MARKED, HIGH_RISK_TRANSACTION, etc.
+
+  // Optional Relations
+  platform_id     String?
+  platform        Platform? @relation("SecurityEvents", fields: [platform_id], references: [id])
+
+  transaction_id  String?
+  transaction     Transaction? @relation("SecurityEvents", fields: [transaction_id], references: [id])
+
+  // Event Data
+  ip_address      String?
+  customer_email  String?
+  customer_phone  String?
+  risk_level      String?  // LOW, MEDIUM, HIGH, CRITICAL
+
+  // Metadata
+  data            Json?
+  metadata        Json?
+
+  // Admin who triggered the event (for manual actions)
+  admin_id        String?
+
+  created_at      DateTime @default(now())
+
+  @@index([event_type, created_at])
+  @@index([platform_id, created_at])
+  @@index([ip_address])
+  @@index([customer_email])
+  @@index([risk_level, created_at])
+  @@map("security_events")
 }
