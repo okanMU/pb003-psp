@@ -32,7 +32,7 @@ export class BankOwnerService {
           where: { is_active: true },
           include: {
             collateral_locks: {
-              where: { status: 'LOCKED' },
+              where: { status: 'ACTIVE' },
             },
           },
         },
@@ -46,7 +46,7 @@ export class BankOwnerService {
     // Calculate real-time collateral for each account
     const accounts = owner.owned_banks.map((bank) => {
       const lockedAmount = bank.collateral_locks.reduce(
-        (sum, lock) => sum + Number(lock.amount),
+        (sum, lock) => sum + Number(lock.locked_amount),
         0,
       );
 
@@ -54,10 +54,10 @@ export class BankOwnerService {
         id: bank.id,
         bank_name: bank.name,
         iban: bank.iban,
-        account_holder: bank.account_holder,
-        collateral_total: Number(bank.collateral_amount),
+        account_holder: bank.account_name,
+        collateral_total: Number(bank.collateral_limit),
         collateral_locked: lockedAmount,
-        collateral_available: Number(bank.collateral_amount) - lockedAmount,
+        collateral_available: Number(bank.collateral_limit) - lockedAmount,
         is_active: bank.is_active,
       };
     });
@@ -294,7 +294,7 @@ export class BankOwnerService {
       },
       include: {
         collateral_locks: {
-          where: { status: 'LOCKED' },
+          where: { status: 'ACTIVE' },
         },
         _count: {
           select: {
@@ -313,7 +313,7 @@ export class BankOwnerService {
     }
 
     const lockedAmount = account.collateral_locks.reduce(
-      (sum, lock) => sum + Number(lock.amount),
+      (sum, lock) => sum + Number(lock.locked_amount),
       0,
     );
 
@@ -321,9 +321,9 @@ export class BankOwnerService {
       id: account.id,
       bank_name: account.name,
       iban: account.iban,
-      collateral_total: Number(account.collateral_amount),
+      collateral_total: Number(account.collateral_limit),
       collateral_locked: lockedAmount,
-      collateral_available: Number(account.collateral_amount) - lockedAmount,
+      collateral_available: Number(account.collateral_limit) - lockedAmount,
       pending_approvals: account._count.transactions,
     };
   }

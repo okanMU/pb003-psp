@@ -174,7 +174,7 @@ export class BankOwnerGateway
           where: { is_active: true },
           include: {
             collateral_locks: {
-              where: { status: 'LOCKED' },
+              where: { status: 'ACTIVE' },
             },
           },
         },
@@ -186,7 +186,7 @@ export class BankOwnerGateway
     // Calculate real-time collateral
     const accounts = owner.owned_banks.map((bank) => {
       const lockedAmount = bank.collateral_locks.reduce(
-        (sum, lock) => sum + Number(lock.amount),
+        (sum, lock) => sum + Number(lock.locked_amount),
         0,
       );
 
@@ -194,9 +194,9 @@ export class BankOwnerGateway
         id: bank.id,
         bank_name: bank.name,
         iban: bank.iban,
-        collateral_total: Number(bank.collateral_amount),
+        collateral_total: Number(bank.collateral_limit),
         collateral_locked: lockedAmount,
-        collateral_available: Number(bank.collateral_amount) - lockedAmount,
+        collateral_available: Number(bank.collateral_limit) - lockedAmount,
       };
     });
 
@@ -256,7 +256,7 @@ export class BankOwnerGateway
           where: { is_active: true },
           include: {
             collateral_locks: {
-              where: { status: 'LOCKED' },
+              where: { status: 'ACTIVE' },
             },
           },
         },
@@ -267,16 +267,16 @@ export class BankOwnerGateway
 
     const collateralData = owner.owned_banks.map((bank) => {
       const lockedAmount = bank.collateral_locks.reduce(
-        (sum, lock) => sum + Number(lock.amount),
+        (sum, lock) => sum + Number(lock.locked_amount),
         0,
       );
 
       return {
         bank_id: bank.id,
         bank_name: bank.name,
-        collateral_total: Number(bank.collateral_amount),
+        collateral_total: Number(bank.collateral_limit),
         collateral_locked: lockedAmount,
-        collateral_available: Number(bank.collateral_amount) - lockedAmount,
+        collateral_available: Number(bank.collateral_limit) - lockedAmount,
       };
     });
 
